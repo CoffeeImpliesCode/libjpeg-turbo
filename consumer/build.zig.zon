@@ -1,0 +1,33 @@
+.{
+    .name = .libjpeg_turbo_consumer,
+    .version = "0.1.0",
+    // Observed, not derived by hand. This package had no gate run against it,
+    // so the field was deliberately absent rather than guessed: a fingerprint is
+    // an identifier the toolchain computes, and computing one by hand would be
+    // inventing the one identifier whose purpose is to not be guessable. The
+    // first observed `zig build run` in this directory reported
+    //
+    //     missing top-level 'fingerprint' field; suggested value:
+    //     0x796dd72417634ecd
+    //
+    // and that is the value written here, in the same change that observed it.
+    // Nothing in this package's build graph or program reads the field.
+    .fingerprint = 0x796dd72417634ecd,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // A relative path, not a registry or archive URL. The consumer is the
+        // proof that `dep.module("libjpeg_turbo")` works from outside the
+        // package that defines it; resolving that through the network would make
+        // the proof depend on a published state of the world instead.
+        //
+        // The key is the hyphenated package name, because that is what
+        // `b.dependency` takes; the module it reaches is `libjpeg_turbo`, with an
+        // underscore, because that is the Zig identifier spelling.
+        .@"libjpeg-turbo" = .{ .path = ".." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

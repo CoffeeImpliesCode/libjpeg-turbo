@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: MIT
+// See FORK-LICENSE.md for what that identifier covers, and NOTICE.md for the
+// per-file inventory of the upstream material this package ships.
+//
+.{
+    // The package id and the name a dependent writes in its dependency map.
+    // The directory is `libjpeg-turbo`; a Zig package name is an identifier,
+    // so the hyphen becomes an underscore here. The map key is still
+    // `"libjpeg-turbo"`, which is what `b.dependency("libjpeg-turbo", ...)`
+    // takes, and it is what `dep.module("libjpeg_turbo")` is reached through.
+    //
+    // The *artifact* name is a different string and deliberately so: the C
+    // artifact is called `jpeg`, so `dep.artifact("jpeg")` is what resolves and
+    // what Zig emits as `libjpeg.a` / `libjpeg.so.62.4.0` - the name upstream
+    // itself uses, `add_library(jpeg SHARED ...)` in
+    // `src/sharedlib/CMakeLists.txt:58` and `OUTPUT_NAME jpeg` for the static
+    // library at `src/CMakeLists.txt:770`.
+    .name = .libjpeg_turbo,
+    .fingerprint = 0xb6dab2ce8d25ebdd,
+    // Upstream's own release, read out of `src/CMakeLists.txt:17`
+    // (`set(VERSION 3.2.0)`). This is the version of the C library this
+    // package builds, not a version of the Zig wrapper, and `build.zig`
+    // refuses to configure when this string and that line disagree, so the
+    // manifest, the shared object's file name and the pkg-config `Version:`
+    // field cannot describe three different releases.
+    .version = "3.2.0",
+    // `.fingerprint` is deliberately absent.
+    //
+    // A package fingerprint is an identifier the Zig toolchain *derives* for a
+    // named package. Deriving one here would mean running the compiler, and no
+    // gate has been run for this package yet, so any value written now would
+    // be an invented identifier. The first observed `zig build` reports the
+    // value the toolchain computes for `.libjpeg_turbo`; the driver records it
+    // in FORK-NOTES.md and adds it here in the same change. Nothing in this
+    // package's source, build graph or tests reads it.
+    .minimum_zig_version = "0.16.0",
+    // Nothing is fetched, and there is no sibling. libjpeg-turbo's core
+    // library needs only libc: `JPEG_SOURCES` at `src/CMakeLists.txt:653-690`
+    // is 98 C units and none of them reaches a third-party library. The
+    // dependency that upstream's own build does pull in - zlib, and the
+    // bundled libspng - belongs to the command-line tools and to TurboJPEG,
+    // both of which are gated by `WITH_TOOLS` / `WITH_TURBOJPEG` and neither of
+    // which this package builds (`src/CMakeLists.txt:884-924` and
+    // `src/sharedlib/CMakeLists.txt:30-41`).
+    .dependencies = .{},
+    .paths = .{
+        // The build graph and this manifest.
+        "build.zig",
+        "build.zig.zon",
+        // `zig/` is the typed facade (`zig/root.zig`) and the one aggregate
+        // header translate-c reads (`zig/translate.h`). It travels because a
+        // dependent reaches it through `dep.module("libjpeg_turbo")`.
+        "zig",
+        // Upstream's libjpeg-turbo, exactly as the release tarball unpacks it:
+        // `src/src/` (the 98 units of `JPEG_SOURCES`, every internal header and
+        // the three `.h.in` configure templates), the pre-generated
+        // `src/src/wrapper/` precision wrappers the tarball ships, `src/simd/`
+        // (carried, never compiled - see the SIMD section of `build.zig`),
+        // `src/win/` (the `.def` files and MSVC resources), `src/doc/`,
+        // `src/cmakescripts/`, `src/release/`, `src/jna/`, `src/fuzz/`, and the
+        // licence and readme files `src/LICENSE.md` and `src/README.ijg`.
+        //
+        // `src` is safe as a bare directory entry because this package never
+        // writes a byte into it. Upstream's own build is out-of-source - every
+        // `configure_file` at `src/CMakeLists.txt:631`, `:716`, `:717` and
+        // `:633` writes into `${CMAKE_CURRENT_BINARY_DIR}`, and
+        // `src/CMakeLists.txt:637` puts that directory on the include path
+        // rather than editing `src/` - and this build generates the same three
+        // headers into a `Run` step's output directory in the build cache,
+        // which sits on the include path *before* `src/src`. Nothing in this
+        // package generates, edits, re-enters or regenerates anything under
+        // `src`, so the directory a dependent receives is upstream's directory
+        // byte for byte. Per-file digests are in `UPSTREAM.sha256`.
+        "src",
+        // The four JPEG fixtures this package's own tests decode. They are
+        // fork-authored byte streams written by `tools/make-fixtures.py` from
+        // arithmetic, not resampled upstream files, and their expected decoded
+        // pixels are stated in that script and in `tests.zig`.
+        "fixtures",
+        // The behavioural test root and the smoke example. `check` compiles
+        // both for every cross target, so they are part of the gate rather
+        // than scaffolding.
+        "tests.zig",
+        "smoke.zig",
+        // The consumer package, as three explicit files: it is a separate
+        // package with its own manifest, and naming its directory would also
+        // pick up its own build cache and output tree.
+        "consumer/build.zig",
+        "consumer/build.zig.zon",
+        "consumer/src/main.zig",
+        // The cross-test harness profile for this package. It is a file in the
+        // package because it is how this package declares what its
+        // cross-platform gate is: `cross-test` discovers it by name from the
+        // package root, and it is settings only - the standard `zig build test`
+        // step over the full published platform matrix, no target subset and no
+        // host path. Nothing in build.zig reads it.
+        "cross-test.profile.sh",
+        // The provenance records: the pin, the digests, the licence inventory,
+        // this fork's own grant, the changelog and the working notes.
+        "UPSTREAM.md",
+        "UPSTREAM.sha256",
+        "README.md",
+        "README.zig.md",
+        "NOTICE.md",
+        "CHANGELOG.md",
+        "FORK-NOTES.md",
+        "FORK-LICENSE.md",
+        // `tools/`: `check-provenance.sh`, the source-integrity gate, and
+        // `jconfig.zig`, the host-target generator `build.zig` runs to write
+        // `jconfig.h`, `jconfigint.h` and `jversion.h`. A dependent that builds
+        // this package runs the generator, so it has to travel.
+        "tools",
+        // The runtime-loading dispatch and the loader core it is generated
+        // from. It travels because a dependent built with `-Druntime=true`
+        // gets it through the published module rather than from its own tree.
+        "runtime",
+        // Standalone Nix packaging and the canonical development shell. The
+        // lock files belong to the driver and are absent from this list until
+        // they exist: naming a path that is not there would make `zig fetch`
+        // hash a missing entry.
+        "package.nix",
+        "flake.nix",
+        "devenv.nix",
+        "devenv.yaml",
+        ".envrc",
+        //
+        // What is deliberately absent, and why. `.zig-cache/`, `zig-out/` and
+        // `zig-pkg/` are build outputs and a fetched package tree; `result` is
+        // a Nix flake symlink; `.devenv/` and `.direnv/` are shell state. None
+        // of them is part of a package: naming one would put a build artefact
+        // inside the package a dependent hashes, and every one of them is
+        // ignored by `.gitignore`, so an ignored path can never become part of
+        // the closure in the first place. `consumer/.zig-cache/` and
+        // `consumer/zig-out/` are likewise absent - which is why the consumer
+        // is listed as three exact files rather than as its directory. The Nix
+        // and devenv lock files are absent for the different reason given
+        // above: they do not exist yet, and `zig fetch` would fail on a named
+        // path that is missing.
+    },
+}

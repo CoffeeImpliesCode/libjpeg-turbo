@@ -1,0 +1,491 @@
+# Verification for the Zig package in this repository.
+#
+# **No run of this workflow has produced a receipt for this package.** Nothing
+# below has ever been executed by this fork, so nothing in it is a claim that
+# anything works. It states what would be checked, in what order, and with what
+# failure modes treated as failures.
+#
+# Upstream's own CI is deliberately not copied or retargeted here. libjpeg-turbo
+# ships its own GitHub Actions workflows for its CMake build, which need NASM,
+# its bundled spng and zlib, and a matrix of its own; running that here would
+# report on a different build graph from the one this repository ships. Every
+# line below is the fork's, and every command is a `zig build` step from this
+# repository's own `build.zig`.
+#
+# Four jobs, four different questions:
+#   provenance
+#            do the 613 upstream digests still match, is the file set exactly
+#            the recorded one, are the four licence notices where NOTICE.md
+#            says they are, and are the four fixture digests unchanged
+#   native   does the whole 98-unit closure compile and link in both linkages,
+#            do the behavioural tests and the example run, and does the
+#            *installed* tree serve a plain C consumer and pkg-config
+#   cross    does the whole package compile for each of the six matrix targets
+#   consumer does the published module resolve from a package that did not
+#            write it, in both linkages
+#
+# The two linkages share one `native` job rather than being two jobs. The C gate
+# program below is written once into `$RUNNER_TEMP` and used against both
+# deliveries, which is only possible in one job - and sharing it is what makes
+# the comparison meaningful: the same program has to pass linked against
+# `libjpeg.a` and linked against `libjpeg.so.62.4.0`, so a difference between
+# the two artifacts cannot hide.
+#
+# There is no `continue-on-error` in this file and there is no matrix with a
+# tolerated target. Each target is a separate step on purpose: a matrix row
+# allowed to fail is indistinguishable from a target that was quietly dropped,
+# and "we know that one is broken" is only a fact once a gate run has printed
+# the failure. If a target ever does turn out to be unsupported here, the honest
+# edit is to replace that step with a command that asserts the specific
+# documented failure and to record the run in FORK-NOTES.md, not to add a flag
+# that hides it.
+#
+# `wasm32-wasi` is **unknown**, not refused and not working. FORK-NOTES.md
+# entry 5 records why, and the `cross` job below runs it like any other target
+# so that the answer comes from a compile rather than from an assumption.
+#
+# The full 53-platform matrix is not in this file. `cross-test`, run from the
+# package root, builds and *runs* `tests.zig` for every platform in Zig 0.16.0's
+# published Tier 1/2 table through this repository's own build graph, using
+# `cross-test.profile.sh` for its settings. It is not a job here because
+# `cross-test` and its sibling helpers are a host-local tool with its own runner
+# detection and its own scratch policy, not something a GitHub runner has;
+# adding a job that invoked a path it does not have would fail for a reason that
+# has nothing to do with this package, and wrapping that job in an availability
+# check would turn a missing gate into a green one. So this file does not
+# pretend to cover it and does not stand in for it: the `cross` job below runs
+# nothing, and a platform with no runner on the host is recorded as explicit
+# `build_only` coverage, never as a pass. The command and its receipts belong in
+# README.md and FORK-NOTES.md.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    name: immutable source, file set, licences and fixture digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # This is the gate that would catch an edit to the canonical native
+      # source, an added file under src/, a dropped attribution or a changed
+      # fixture. It compiles nothing and downloads nothing.
+      - name: upstream digests, exact file set, licence notices, fixtures
+        run: |
+          set -euo pipefail
+          tools/check-provenance.sh
+
+      # The fixture check on its own, printed with its per-file lines so a
+      # failure names which fixture moved.
+      - name: fixture digests, named
+        run: python3 tools/check-fixtures.py
+
+      # The four digests the fixtures are supposed to have, stated here so a
+      # change to the expectation has to change this file too and cannot ride
+      # along inside a test edit.
+      - name: fixture digests are the recorded ones
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/fixtures.sha256" <<'EOF'
+          b2e2490ff88768780f7e48f1739d1a608dfc7b5c17a54c2665db29db8b51f4bf  fixtures/grey16x16-halves.jpg
+          f7f10aee901395fe1a12f424cd8d91f9bf2e181642cf0ab069b406d938cb9e2d  fixtures/grey8x8-200.jpg
+          e31f0659abba47da10e4600fde1a3da25afdcacee2f1dde5029aeddade972b98  fixtures/rgb8x8-grey200.jpg
+          0704223b42ce860b9a28892da837fa160de3603ebd6cc8cd385dbb8a71f18684  fixtures/rgb8x8-grey64.jpg
+          EOF
+          sha256sum -c "$RUNNER_TEMP/fixtures.sha256"
+
+  native:
+    name: native build, tests, example and installed closure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: immutable source and licence notices
+        run: |
+          set -euo pipefail
+          sha256sum -c UPSTREAM.sha256
+          tools/check-provenance.sh
+
+      # Written once, used by both linkages below.
+      #
+      # Every expected value is a literal, and none of them is read back out of
+      # this build. The four decoded images are the independent known answers
+      # from UPSTREAM.md: both quantisation tables are all ones so quantisation
+      # is exact, every block is flat so its only DCT coefficient is
+      # 8*(sample-128) and the inverse DCT returns that divided by eight before
+      # the level shift, and the JFIF luma constants 19595 + 38470 + 7471 sum
+      # to exactly 2^16 so R=G=B=v decodes to (v,v,v). A program that asked
+      # libjpeg-turbo whether it agreed with itself would not pass these.
+      #
+      # The decode path is the full memory-manager chain, not a shortcut:
+      # jpeg_mem_src -> jpeg_read_header -> jpeg_start_decompress ->
+      # jpeg_read_scanlines -> jpeg_finish_decompress.
+      - name: write the installed-C gate program
+        run: |
+          set -euo pipefail
+
+          # The four fixtures as C arrays, embedded rather than read from a
+          # path: a gate that depends on a working directory can pass for the
+          # wrong reason. `xxd -i` emits exactly the bytes the file has; nothing
+          # is re-encoded, and tools/check-provenance.sh has already checked
+          # that these bytes are the recorded ones.
+          mkdir -p "$RUNNER_TEMP/inc"
+          for fixture in grey8x8-200 grey16x16-halves rgb8x8-grey64 rgb8x8-grey200; do
+            xxd -i -n "fixture_${fixture//-/_}" "fixtures/${fixture}.jpg" \
+              | sed -e 's/^unsigned char /static const unsigned char /' \
+              > "$RUNNER_TEMP/inc/${fixture}.h"
+          done
+
+          cat > "$RUNNER_TEMP/gate.c" <<'C'
+          /* FILE and size_t are used by jpeglib.h and it deliberately does not
+             include stdio.h; see src/src/jpeglib.h:21-29. A C consumer has to
+             supply them, and this program does. */
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+
+          #include <jpeglib.h>
+          #include <jerror.h>
+
+          #include "grey8x8-200.h"
+          #include "grey16x16-halves.h"
+          #include "rgb8x8-grey64.h"
+          #include "rgb8x8-grey200.h"
+
+          /* Decode a 1-component JPEG held in memory and require every decoded
+             sample to equal `want`, and require the geometry to be exactly
+             width x height. Returns 0 on success. Every expectation here is a
+             literal from UPSTREAM.md, not a value read out of this build. */
+          static int check_grey(const unsigned char *bytes, size_t len,
+                                unsigned width, unsigned height,
+                                unsigned char top, unsigned char bottom,
+                                unsigned split_row, const char *name) {
+            struct jpeg_decompress_struct cinfo;
+            struct jpeg_error_mgr jerr;
+            JSAMPARRAY output;
+            unsigned y;
+
+            cinfo.err = jpeg_std_error(&jerr);
+            jpeg_create_decompress(&cinfo);
+            jpeg_mem_src(&cinfo, (unsigned char *)bytes, (unsigned long)len);
+
+            if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+              fprintf(stderr, "%s: read_header failed\n", name);
+              jpeg_destroy_decompress(&cinfo);
+              return 1;
+            }
+            if (cinfo.image_width != width || cinfo.image_height != height ||
+                cinfo.num_components != 1) {
+              fprintf(stderr, "%s: geometry is %ux%u x%d, expected %ux%u x1\n",
+                      name, cinfo.image_width, cinfo.image_height,
+                      cinfo.num_components, width, height);
+              jpeg_destroy_decompress(&cinfo);
+              return 1;
+            }
+
+            cinfo.out_color_space = JCS_GRAYSCALE;
+            jpeg_start_decompress(&cinfo);
+
+            output = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,
+                              width * cinfo.output_components, 1);
+            while (cinfo.output_scanline < cinfo.output_height) {
+              JSAMPROW row = output[0];
+              if (jpeg_read_scanlines(&cinfo, &row, 1) != 1) {
+                fprintf(stderr, "%s: short scanline at %u\n", name,
+                        cinfo.output_scanline);
+                jpeg_destroy_decompress(&cinfo);
+                return 1;
+              }
+              for (y = 0; y < width; y++) {
+                /* grey16x16-halves.jpg is one image with two halves, so the
+                   expected sample depends on the row rather than on the file. */
+                unsigned char want =
+                    (cinfo.output_scanline < split_row) ? top : bottom;
+                if (output[0][y] != want) {
+                  fprintf(stderr,
+                          "%s: sample %u of scanline %u is %u, expected %u\n",
+                          name, y, cinfo.output_scanline, output[0][y], want);
+                  jpeg_destroy_decompress(&cinfo);
+                  return 1;
+                }
+              }
+            }
+
+            jpeg_finish_decompress(&cinfo);
+            jpeg_destroy_decompress(&cinfo);
+            fprintf(stderr, "%s: %ux%u decoded to exactly %u/%u\n", name, width,
+                    height, top, bottom);
+            return 0;
+          }
+
+          /* An error path, not only a success path. A stream of 0xFF bytes is
+             not a JPEG file, and jpeg_read_header must report it through the
+             error manager rather than accept it. The default error_exit calls
+             exit(), so this function returning at all is the failure. */
+          static int check_malformed_is_rejected(void) {
+            struct jpeg_decompress_struct cinfo;
+            struct jpeg_error_mgr jerr;
+            unsigned char junk[64];
+
+            memset(junk, 0xFF, sizeof(junk));
+            cinfo.err = jpeg_std_error(&jerr);
+            jpeg_create_decompress(&cinfo);
+            jpeg_mem_src(&cinfo, junk, sizeof(junk));
+            jpeg_read_header(&cinfo, TRUE);
+            fprintf(stderr, "a stream of 0xFF bytes was accepted as a header\n");
+            jpeg_destroy_decompress(&cinfo);
+            return 1;
+          }
+
+          /* A round trip through the compressor: 1x1 greyscale at 200, and the
+             destination manager must report the bytes it wrote. This is a
+             supplement to the four known answers above, never a substitute: it
+             compares this build against itself, and what it adds is that the
+             *encoding* side and the destination manager work at all. */
+          static int check_roundtrip(void) {
+            struct jpeg_compress_struct cinfo;
+            struct jpeg_error_mgr jerr;
+            unsigned char *outbuf = NULL;
+            unsigned long outsize = 0;
+            unsigned char pixel[1] = { 200 };
+
+            cinfo.err = jpeg_std_error(&jerr);
+            jpeg_create_compress(&cinfo);
+            jpeg_mem_dest(&cinfo, &outbuf, &outsize);
+
+            cinfo.image_width = 1;
+            cinfo.image_height = 1;
+            cinfo.input_components = 1;
+            cinfo.in_color_space = JCS_GRAYSCALE;
+            jpeg_set_defaults(&cinfo);
+            jpeg_set_quality(&cinfo, 100, TRUE);
+            jpeg_start_compress(&cinfo, TRUE);
+            while (cinfo.next_scanline < cinfo.image_height) {
+              JSAMPROW row = pixel;
+              jpeg_write_scanlines(&cinfo, &row, 1);
+            }
+            jpeg_finish_compress(&cinfo);
+            jpeg_destroy_compress(&cinfo);
+
+            if (outbuf == NULL || outsize == 0) {
+              fprintf(stderr, "compress produced no bytes\n");
+              return 1;
+            }
+            fprintf(stderr, "compress produced %lu bytes\n", outsize);
+            free(outbuf);
+            return 0;
+          }
+
+          int main(void) {
+            if (check_grey(fixture_grey8x8_200, sizeof(fixture_grey8x8_200),
+                           8, 8, 200, 200, 8, "grey8x8-200.jpg") != 0) return 1;
+            if (check_grey(fixture_grey16x16_halves,
+                           sizeof(fixture_grey16x16_halves), 16, 16,
+                           0, 255, 8, "grey16x16-halves.jpg") != 0) return 1;
+            /* The two RGB fixtures are decoded to greyscale on purpose: for
+               R=G=B=v the JFIF luma transform gives exactly Y=v, so a grey
+               decode of an all-grey colour image is v, computed from the
+               transform rather than read back from the encoder. The colour
+               round trip itself is what check_roundtrip exercises. */
+            if (check_grey(fixture_rgb8x8_grey64, sizeof(fixture_rgb8x8_grey64),
+                           8, 8, 64, 64, 8, "rgb8x8-grey64.jpg") != 0) return 1;
+            if (check_grey(fixture_rgb8x8_grey200,
+                           sizeof(fixture_rgb8x8_grey200), 8, 8, 200, 200, 8,
+                           "rgb8x8-grey200.jpg") != 0) return 1;
+            if (check_roundtrip() != 0) return 1;
+            if (check_malformed_is_rejected() != 0) return 1;
+            return 0;
+          }
+          C
+
+      # -------------------------------------------------------------- static
+      - name: "static: build"
+        run: zig build -Dsimd=c -Dlinkage=static --prefix "$RUNNER_TEMP/prefix-static" --summary all
+
+      - name: "static: tests"
+        run: zig build test -Dsimd=c -Dlinkage=static --summary all
+
+      - name: "static: tests, ReleaseSafe"
+        run: zig build test -Dsimd=c -Dlinkage=static -Doptimize=ReleaseSafe --summary all
+
+      - name: "static: example"
+        run: zig build smoke -Dsimd=c -Dlinkage=static --summary all
+
+      # The installed tree, not the build tree: this is what a C consumer
+      # receives, and the generated jconfig.h has to be in include/ for
+      # jpeglib.h's bare-name include to resolve.
+      - name: "static: installed C surface and pkg-config"
+        env:
+          PREFIX: ${{ runner.temp }}/prefix-static
+        run: |
+          set -euo pipefail
+          test -f "$PREFIX/lib/libjpeg.a"
+          test -f "$PREFIX/include/jpeglib.h"
+          test -f "$PREFIX/include/jconfig.h"
+          test -f "$PREFIX/include/jmorecfg.h"
+          test -f "$PREFIX/include/jerror.h"
+          test -f "$PREFIX/lib/pkgconfig/libjpeg.pc"
+          test -d "$PREFIX/share/licenses/libjpeg-turbo"
+          grep -q '^Name: libjpeg$' "$PREFIX/lib/pkgconfig/libjpeg.pc"
+          grep -q '^Version: 3.2.0$' "$PREFIX/lib/pkgconfig/libjpeg.pc"
+          grep -q 'Independent JPEG Group' \
+            "$PREFIX/share/licenses/libjpeg-turbo/README.ijg"
+
+          # pkg-config has to resolve the file it points at, or the .pc is a lie.
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          pkg-config --exists libjpeg
+          pkg-config --libs libjpeg | grep -q -- '-ljpeg'
+
+          # The same program, compiled by hand against the installed headers
+          # and archive rather than by the build graph, so what is tested is
+          # the installed tree.
+          "${CC:-cc}" -std=c11 -Wall -Wextra -o "$RUNNER_TEMP/gate-static" \
+            -I "$RUNNER_TEMP/inc" -I "$PREFIX/include" \
+            "$RUNNER_TEMP/gate.c" "$PREFIX/lib/libjpeg.a" -lm
+          "$RUNNER_TEMP/gate-static" .
+
+      # -------------------------------------------------------------- shared
+      - name: "shared: build"
+        run: zig build -Dsimd=c -Dlinkage=dynamic --prefix "$RUNNER_TEMP/prefix-shared" --summary all
+
+      - name: "shared: tests"
+        run: zig build test -Dsimd=c -Dlinkage=dynamic --summary all
+
+      - name: "shared: tests, ReleaseSafe"
+        run: zig build test -Dsimd=c -Dlinkage=dynamic -Doptimize=ReleaseSafe --summary all
+
+      - name: "shared: example"
+        run: zig build smoke -Dsimd=c -Dlinkage=dynamic --summary all
+
+      # The soname and the real file name are upstream's own numbers
+      # (src/CMakeLists.txt:373-397, src/sharedlib/CMakeLists.txt:58-59), so
+      # checking them here is checking the ABI against upstream's arithmetic.
+      - name: "shared: soname, libjpeg.pc and the installed C surface"
+        env:
+          PREFIX: ${{ runner.temp }}/prefix-shared
+        run: |
+          set -euo pipefail
+          test -f "$PREFIX/lib/libjpeg.so.62.4.0"
+          test -L "$PREFIX/lib/libjpeg.so.62"
+          readelf -d "$PREFIX/lib/libjpeg.so.62.4.0" | grep -q 'SONAME.*libjpeg\.so\.62'
+          test -f "$PREFIX/include/jpeglib.h"
+          test -f "$PREFIX/include/jconfig.h"
+          test -f "$PREFIX/lib/pkgconfig/libjpeg.pc"
+          grep -q '^Version: 3.2.0$' "$PREFIX/lib/pkgconfig/libjpeg.pc"
+
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          pkg-config --exists libjpeg
+
+          # The same source, the same expectations, linked against the shared
+          # object instead of the archive. That is the whole point of sharing
+          # one job: a difference between the two artifacts cannot hide.
+          "${CC:-cc}" -std=c11 -Wall -Wextra -o "$RUNNER_TEMP/gate-shared" \
+            -I "$RUNNER_TEMP/inc" -I "$PREFIX/include" \
+            "$RUNNER_TEMP/gate.c" -L"$PREFIX/lib" -ljpeg -lm
+          "$RUNNER_TEMP/gate-shared" .
+
+      # libjpeg-turbo exports no version symbol, so there is nothing to load-
+      # time check. This job therefore proves the linkage instead, by running
+      # the installed consumer program in both linkages above.
+      - name: runtime-loaded route, static and shared providers
+        run: |
+          set -euo pipefail
+          zig build test -Dsimd=c -Druntime=true --summary all
+          zig build test -Dsimd=c -Druntime=true -Doptimize=ReleaseSafe --summary all
+
+  cross:
+    name: compile-only matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: immutable source
+        run: sha256sum -c UPSTREAM.sha256
+
+      # `zig build check` compiles and links the 98 C units, the generated
+      # headers, the translated facade, the tests and the example for each
+      # target, and runs nothing. Each target is its own step on purpose: see
+      # the header comment. wasm32-wasi is included for that reason and is
+      # currently unknown (FORK-NOTES.md entry 5).
+      - name: x86_64-linux-gnu
+        run: zig build check -Dsimd=c -Dtarget=x86_64-linux-gnu --summary all
+      - name: aarch64-linux-gnu
+        run: zig build check -Dsimd=c -Dtarget=aarch64-linux-gnu --summary all
+      - name: aarch64-macos-none
+        run: zig build check -Dsimd=c -Dtarget=aarch64-macos-none --summary all
+      - name: x86_64-windows-gnu
+        run: zig build check -Dsimd=c -Dtarget=x86_64-windows-gnu --summary all
+      - name: riscv64-linux-gnu
+        run: zig build check -Dsimd=c -Dtarget=riscv64-linux-gnu --summary all
+      - name: wasm32-wasi
+        run: zig build check -Dsimd=c -Dtarget=wasm32-wasi --summary all
+
+      # The boundary is in the build graph, so it is checked where it is
+      # enforced rather than only in prose. -Dsimd accepts `c` and nothing else.
+      - name: "-Dsimd accepts only the portable C configuration"
+        run: |
+          set -euo pipefail
+          # Captured rather than piped, so `set -o pipefail` cannot turn a
+          # deliberate non-zero exit from the build into a failed pipeline
+          # before the message is examined.
+          if output=$(zig build -Dsimd=nasm 2>&1); then
+            echo "-Dsimd=nasm was accepted; the SIMD boundary is not enforced" >&2
+            exit 1
+          fi
+          # A refusal that says nothing about SIMD would be an unhelpful one,
+          # so the reason has to be in the message the user sees.
+          printf '%s\n' "$output" | grep -qi 'simd'
+
+  consumer:
+    name: the package as a dependent sees it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: immutable source
+        run: sha256sum -c UPSTREAM.sha256
+
+      # consumer/ is a separate package with its own manifest and its own
+      # relative path dependency on "..", so this is the proof that
+      # dep.module("libjpeg_turbo") resolves from outside this package and that
+      # the .paths in build.zig.zon are complete enough for the fetch.
+      - name: consumer, static linkage
+        working-directory: consumer
+        run: zig build run -Dsimd=c -Dlinkage=static --summary all
+
+      - name: consumer, shared linkage
+        working-directory: consumer
+        run: zig build run -Dsimd=c -Dlinkage=dynamic --summary all
+
+      # A loaded consumer needs a provider, and this loader has no default:
+      # nothing is loaded unless a file is named. The provider here is the
+      # shared object this same tree builds, passed explicitly and never
+      # discovered, so the step proves what it says it proves. The refusal when
+      # no provider is named is the boundary the consumer's own error text
+      # covers; this step is not that one.
+      - name: consumer, runtime-loaded
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          zig build -Dsimd=c -Dlinkage=dynamic install --prefix "$PWD/.provider"
+          zig build run -Dsimd=c -Druntime=true --summary all -- \
+            --provider "$PWD/.provider/lib/libjpeg.so"
