@@ -230,7 +230,7 @@ pub fn build(b: *std.Build) void {
             \\    SIMD_ARCHITECTURE is NONE.
             \\  * x86 and x86-64 SIMD is NASM assembly (56 files in src/simd/i386/, 35
             \\    in src/simd/x86_64/, assembled through enable_language(ASM_NASM) at
-            \\    src/simd/CMakeLists.txt:61). Zig 0.16.0's toolchain contains no NASM
+            \\    src/simd/CMakeLists.txt:61). Zig 0.17.0's toolchain contains no NASM
             \\    and its clang does not accept NASM syntax, so those 91 files cannot be
             \\    assembled from this build graph on x86_64-linux-gnu or
             \\    x86_64-windows-gnu.
@@ -254,8 +254,8 @@ pub fn build(b: *std.Build) void {
         @panic("libjpeg-turbo: -Dsimd accepts `c` and nothing else");
     }
 
-    const linkage: std.builtin.LinkMode = b.option(
-        std.builtin.LinkMode,
+    const linkage: std.lang.LinkMode = b.option(
+        std.lang.LinkMode,
         "linkage",
         "Deliver the native library as `libjpeg.a` (the default) or as a real " ++
             "shared object with upstream's own numbers, `libjpeg.so.62.4.0` and " ++
@@ -319,7 +319,7 @@ pub fn build(b: *std.Build) void {
 
     const run_example = b.addRunArtifact(example);
     run_example.has_side_effects = true;
-    if (b.args) |args| run_example.addArgs(args);
+    run_example.addPassthruArgs();
     b.step("smoke", "Run the deterministic example program").dependOn(&run_example.step);
 
     // The test root must declare test blocks; re-export-only roots discover none.
@@ -385,7 +385,7 @@ pub fn build(b: *std.Build) void {
         "libjpeg-turbo: SIMD configuration is the portable C one (-Dsimd=c, the only " ++
             "accepted value). WITH_SIMD is undefined, SIMD_ARCHITECTURE is NONE, and no " ++
             "file under src/simd/ is compiled on any target. x86/x86-64 SIMD is NASM " ++
-            "assembly (91 files) and Zig 0.16.0 carries no NASM; the other families " ++
+            "assembly (91 files) and Zig 0.17.0 carries no NASM; the other families " ++
             "are C intrinsics that upstream selects by running its own capability " ++
             "probes (src/simd/CMakeLists.txt:289-333). Upstream's 2-6x speed claim " ++
             "(src/README.md:4-10) does NOT apply to this package.\n",
@@ -455,7 +455,7 @@ fn addGeneratedHeaders(b: *std.Build, target: std.Build.ResolvedTarget) Generate
         .root_module = b.createModule(.{
             .root_source_file = b.path(generator_source),
             .target = b.graph.host,
-            .optimize = .ReleaseSafe,
+            .optimize = .safe,
         }),
     });
 
@@ -474,9 +474,9 @@ fn generateHeaders(
     var generated: Generated = undefined;
     for (templates) |which| {
         run.addArg(which.inFlag());
-        run.addFileArg(b.path(which.source()));
+        run.addFileArg2(b.path(which.source()), .{});
         run.addArg(which.outFlag());
-        const out = run.addOutputFileArg(which.outputName());
+        const out = run.addOutputFileArg2(which.outputName(), .{});
         switch (which) {
             .jconfig => generated.jconfig = out,
             .jconfigint => generated.jconfigint = out,
@@ -568,8 +568,8 @@ const Graph = struct {
 fn addGraph(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
     public: bool,
     generated: Generated,
@@ -626,8 +626,8 @@ fn addGraph(
 fn add_c_library(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     name: []const u8,
     generated: Generated,
 ) *std.Build.Step.Compile {
@@ -694,8 +694,8 @@ fn add_target_check(
     b: *std.Build,
     step: *std.Build.Step,
     query: std.Target.Query,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
 ) void {
     const cross_target = b.resolveTargetQuery(query);
@@ -740,89 +740,78 @@ fn add_target_check(
 fn runConsumer(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
 ) *std.Build.Step.Run {
     const triple = target.query.zigTriple(b.allocator) catch @panic("OOM");
     defer b.allocator.free(triple);
     // The triple omits the CPU; forward the resolved CPU selection separately.
-    // `addArg` copies the values, so their temporary strings can be freed.
     const cpu = target.query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
     defer b.allocator.free(cpu);
 
-    // Use the Zig executable running this build.
-    const run = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
+    const launcher = b.addExecutable(.{
+        .name = "libjpeg-turbo-consumer-build",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/consumer.zig"),
+            .target = b.graph.host,
+            .optimize = .safe,
+        }),
+    });
+    const run = b.addRunArtifact(launcher);
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .global_cache } },
+        .{ .make_absolute = true },
+    );
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .zig_lib } },
+        .{ .make_absolute = true },
+    );
+    run.addArgs(&.{ b.graph.zig_exe, "build" });
     run.setName("consumer package");
     run.setCwd(b.path("consumer"));
-    run.addArg(if (hostCanExecute(b, target)) "run" else "install");
+    run.addArg("consumer");
     run.addArg(b.fmt("-Dtarget={s}", .{triple}));
     run.addArg(b.fmt("-Dcpu={s}", .{cpu}));
     run.addArg(b.fmt("-Doptimize={s}", .{@tagName(optimize)}));
     run.addArg(b.fmt("-Dlinkage={s}", .{@tagName(linkage)}));
     run.addArg(b.fmt("-Druntime={s}", .{if (runtime_loaded) "true" else "false"}));
-    // Keep the nested build's SIMD setting identical.
     run.addArg("-Dsimd=c");
-    // Forward the resolved negative system flag so the nested graph stays bundled.
     run.addArg(b.fmt("-fno-sys={s}", .{artifact_name}));
-    if (b.enable_darling) run.addArg("-fdarling");
-    if (b.enable_qemu) run.addArg("-fqemu");
-    if (b.enable_rosetta) run.addArg("-frosetta");
-    if (b.enable_wasmtime) run.addArg("-fwasmtime");
-    if (b.enable_wine) run.addArg("-fwine");
-    if (b.libc_runtimes_dir) |runtimes| run.addArgs(&.{ "--libc-runtimes", runtimes });
+
+    run.addThirdPartyEnabledArgDarling(.{ .enabled = "-fdarling" });
+    run.addThirdPartyEnabledArgDarling(.{ .enabled = "-Dconsumer-darling=true" });
+    run.addThirdPartyEnabledArgQemu(.{ .enabled = "-fqemu" });
+    run.addThirdPartyEnabledArgQemu(.{ .enabled = "-Dconsumer-qemu=true" });
+    run.addThirdPartyEnabledArgRosetta(.{ .enabled = "-frosetta" });
+    run.addThirdPartyEnabledArgWasmtime(.{ .enabled = "-fwasmtime" });
+    run.addThirdPartyEnabledArgWasmtime(.{ .enabled = "-Dconsumer-wasmtime=true" });
+    run.addThirdPartyEnabledArgWine(.{ .enabled = "-fwine" });
+    run.addThirdPartyEnabledArgWine(.{ .enabled = "-Dconsumer-wine=true" });
+
     run.addArg("-j8");
     run.addArg("--summary");
     run.addArg("all");
-    if (b.cache_root.path) |cache| {
-        run.addArg("--cache-dir");
-        run.addArg(b.fmt("{s}/consumer", .{cache}));
+
+    run.addArg("--cache-dir");
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .local_cache } },
+        .{ .suffix = "/consumer", .make_absolute = true },
+    );
+    // Optional runtime paths are unavailable to the Zig 0.17 configurer.
+    if (b.option([]const u8, "consumer-libc-runtimes", "Libc runtime directory for the nested consumer build.")) |path| {
+        const libc_runtimes: std.Build.LazyPath = .{ .cwd_relative = path };
+        run.addArg("--libc-runtimes");
+        run.addDirectoryArg2(libc_runtimes, .{ .make_absolute = true });
+        run.addDirectoryArg2(libc_runtimes, .{
+            .prefix = "-Dconsumer-libc-runtimes=",
+            .make_absolute = true,
+        });
     }
-    // Reuse the parent's global package cache.
-    if (b.graph.global_cache_root.path) |global_cache| {
-        run.addArg("--global-cache-dir");
-        run.addArg(global_cache);
-    }
-    // Forward an absolute install prefix; the nested build runs from `consumer/`.
-    const default_prefix = b.build_root.join(b.allocator, &.{"zig-out"}) catch @panic("OOM");
-    if (!std.mem.eql(u8, b.install_prefix, default_prefix)) {
-        const prefix = if (std.fs.path.isAbsolute(b.install_prefix))
-            b.install_prefix
-        else
-            b.pathJoin(&.{ b.graph.cache.cwd, b.install_prefix });
-        run.addArg("--prefix");
-        run.addArg(prefix);
-    }
-    // Place program arguments after `--` so the nested build does not parse them as options.
-    if (b.args) |args| {
-        run.addArg("--");
-        run.addArgs(args);
-    }
+
+    run.addPassthruArgs();
     run.has_side_effects = true;
     return run;
-}
-
-/// Whether this host can execute the target with its enabled runners.
-fn hostCanExecute(b: *std.Build, target: std.Build.ResolvedTarget) bool {
-    const host = &b.graph.host.result;
-    const candidate = &target.result;
-    const options: std.zig.system.GetExternalExecutorOptions = .{
-        .allow_darling = b.enable_darling,
-        .allow_qemu = b.enable_qemu,
-        .allow_wasmtime = b.enable_wasmtime,
-        .allow_wine = b.enable_wine,
-        // The consumer executable has no linkage, so Run's musl linker gate does not apply.
-        .qemu_fixes_dl = candidate.isGnuLibC() and b.libc_runtimes_dir != null,
-        .link_libc = true,
-    };
-    return switch (std.zig.system.getExternalExecutor(b.graph.io, host, candidate, options)) {
-        .native, .rosetta => true,
-        // `Run` applies the same switches before enabling each executor.
-        .wine, .wasmtime, .darling => true,
-        // QEMU needs GNU libc runtimes; otherwise install the cross target instead.
-        .qemu => !(candidate.isGnuLibC() and b.libc_runtimes_dir == null),
-        .bad_dl, .bad_os_or_cpu => false,
-    };
 }
 
 /// Keep upstream's description; it names the library, not this portable-C build.
@@ -919,7 +908,7 @@ fn checkMatrixPartition(b: *std.Build) void {
 
 /// WASI has no shared-object form; deliver static if dynamic was requested.
 /// This selects artifact form, not whether the library compiles for the target.
-fn deliveredLinkage(target: std.Build.ResolvedTarget, requested: std.builtin.LinkMode) std.builtin.LinkMode {
+fn deliveredLinkage(target: std.Build.ResolvedTarget, requested: std.lang.LinkMode) std.lang.LinkMode {
     return switch (requested) {
         .static => .static,
         .dynamic => switch (target.result.os.tag) {

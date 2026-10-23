@@ -1,7 +1,7 @@
 # libjpeg-turbo
 
 This package exposes the libjpeg API from libjpeg-turbo 3.2.0 as a standalone Zig SDK.
-It requires Zig 0.16.0 and links libc only.
+It requires Zig 0.17.0 and links libc only.
 
 ## Source deviations from upstream
 
@@ -82,6 +82,7 @@ The module is `dep.module("libjpeg_turbo")`. The native C artifact is
 | `-Dlinkage=static` or `-Dlinkage=dynamic` | `static` | Selects the native artifact form. |
 | `-Druntime=true` | `false` | Resolves native calls through an explicit process-lifetime loader. |
 | `-Dsimd=c` | `c` | The only accepted SIMD configuration. |
+| `-Dconsumer-libc-runtimes=<path>` | unset | Supplies libc runtimes to `zig build consumer`; relative paths use the outer build directory. |
 
 There is no system-library mode; `-Dsystem=true` and `-fsys=jpeg` are refused.
 

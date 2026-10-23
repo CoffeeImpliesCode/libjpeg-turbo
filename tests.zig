@@ -352,7 +352,7 @@ test "an 8x8 block of 200 compresses and reads back as 200" {
 
     try testing.expectEqual(@as(usize, 0), out.bytes().len);
 
-    const block = [_]u8{200} ** 64;
+    const block: [64]u8 = @splat(200);
     const written = try out.writeScanlines(&block);
     try testing.expectEqual(@as(usize, 8), written);
     out.finishCompress();
@@ -405,7 +405,7 @@ test "a scanline buffer that is not a whole number of rows is refused" {
     out.startCompress();
 
     // Nine bytes is not a whole number of eight-byte rows.
-    const ragged = [_]u8{200} ** 9;
+    const ragged: [9]u8 = @splat(200);
     try testing.expectError(error.RowBufferTooSmall, out.writeScanlines(&ragged));
 }
 

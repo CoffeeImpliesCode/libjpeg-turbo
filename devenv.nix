@@ -4,7 +4,7 @@
 
 let
   # Share one Zig package between the assertion and shell tools.
-  zig = pkgs.zig_0_16;
+  zig = pkgs.zig_0_17;
 
   libjpeg_turbo = linkage: pkgs.callPackage ./package.nix { … };
 
@@ -76,8 +76,8 @@ in
 
   assertions = [
     {
-      assertion = zig.version == "0.16.0";
-      message = "The libjpeg-turbo SDK requires Zig 0.16.0; nixpkgs resolved zig_0_16 to ${zig.version}";
+      assertion = zig.version == "0.17.0";
+      message = "The libjpeg-turbo SDK requires Zig 0.17.0; nixpkgs resolved zig_0_17 to ${zig.version}";
     }
   ];
 

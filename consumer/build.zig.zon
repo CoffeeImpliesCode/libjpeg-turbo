@@ -13,7 +13,7 @@
     // and that is the value written here, in the same change that observed it.
     // Nothing in this package's build graph or program reads the field.
     .fingerprint = 0x796dd72417634ecd,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         // A relative path, not a registry or archive URL. The consumer is the
         // proof that `dep.module("libjpeg_turbo")` works from outside the

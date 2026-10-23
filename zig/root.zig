@@ -192,7 +192,7 @@ pub const Decompress = struct {
             @intCast(bytes.len),
         );
 
-        const result: HeaderResult = @enumFromInt(c.jpeg_read_header(self.raw, 1));
+        const result: HeaderResult = @fromBackingInt(@intCast(c.jpeg_read_header(self.raw, 1)));
         if (result != .header_ok) return error.NotAJpegImage;
     }
 
@@ -235,24 +235,24 @@ pub const Decompress = struct {
 
     /// Colorspace of the encoded image.
     pub fn jpegColorSpace(self: *const Decompress) ColorSpace {
-        return @enumFromInt(self.handle().jpeg_color_space);
+        return @fromBackingInt(@intCast(self.handle().jpeg_color_space));
     }
 
     /// Current requested output colorspace; upstream may resolve `.unknown` at startup.
     /// Read again after `startDecompress` to see the selected value.
     pub fn outColorSpace(self: *const Decompress) ColorSpace {
-        return @enumFromInt(self.handle().out_color_space);
+        return @fromBackingInt(@intCast(self.handle().out_color_space));
     }
 
     /// Request an output colorspace before `startDecompress`.
     /// Unsupported conversions are fatal libjpeg errors.
     pub fn requestOutColorSpace(self: *Decompress, space: ColorSpace) void {
-        self.handle().out_color_space = @intCast(@intFromEnum(space));
+        self.handle().out_color_space = @intCast(@backingInt(space));
     }
 
     /// Select the inverse DCT method; the default is `.islow`.
     pub fn requestDctMethod(self: *Decompress, method: DctMethod) void {
-        self.handle().dct_method = @intFromEnum(method);
+        self.handle().dct_method = @backingInt(method);
     }
 
     /// Start decoding and compute output dimensions and components.
@@ -429,7 +429,7 @@ pub const Compress = struct {
 
     /// Set the colorspace of input pixels; call before `setDefaults`.
     pub fn setInputColorSpace(self: *Compress, space: ColorSpace) void {
-        self.handle().in_color_space = @intCast(@intFromEnum(space));
+        self.handle().in_color_space = @intCast(@backingInt(space));
     }
 
     /// Apply upstream defaults after setting the input colorspace.

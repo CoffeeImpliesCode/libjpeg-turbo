@@ -180,7 +180,7 @@ pub fn main(init: std.process.Init) !void {
         out.startCompress();
         try checkInt(w, "encode: bytes before finishCompress", out.bytes().len, 0);
 
-        const block = [_]u8{200} ** 64;
+        const block: [64]u8 = @splat(200);
         try checkInt(w, "encode: scanlines accepted", try out.writeScanlines(&block), 8);
         out.finishCompress();
         const compressed = out.bytes();

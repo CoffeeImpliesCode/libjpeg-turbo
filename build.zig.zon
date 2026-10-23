@@ -6,7 +6,7 @@
     .name = .libjpeg_turbo,
     .fingerprint = 0xb6dab2ce8d25ebdd,
     .version = "3.2.0",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",

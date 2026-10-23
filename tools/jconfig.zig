@@ -349,15 +349,15 @@ fn resolveCmakedefineLine(
     const value = cmake.get(name);
     if (is01) {
         const on = value != null and value.? != null;
-        return std.fmt.allocPrint(arena, "#define {s} {d}", .{ name, @intFromBool(on) });
+        return arena.print("#define {s} {d}", .{ name, @intFromBool(on) });
     }
     if (value) |maybe| {
         if (maybe) |v| {
-            if (tail.len == 0) return std.fmt.allocPrint(arena, "#define {s}", .{name});
-            return std.fmt.allocPrint(arena, "#define {s} {s}", .{ name, v });
+            if (tail.len == 0) return arena.print("#define {s}", .{name});
+            return arena.print("#define {s} {s}", .{ name, v });
         }
     }
-    return std.fmt.allocPrint(arena, "/* #undef {s} */", .{name});
+    return arena.print("/* #undef {s} */", .{name});
 }
 
 /// Print supplied values so failed configurations can be corrected from the diagnostic.

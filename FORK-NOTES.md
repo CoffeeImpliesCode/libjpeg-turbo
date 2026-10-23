@@ -16,6 +16,9 @@ No files under `src/` are modified. Fork-authored files add the Zig-facing build
 - `-Dlinkage` selects static (default) or shared output. `-Druntime=true` selects the runtime-dispatch facade. System-library mode is refused.
 - `-Dsimd` accepts only `c`. The graph disables arithmetic coding, profiling, TurboJPEG, command-line tools, upstream tests, and JPEG 7/8 extensions; the public API remains libjpeg v6.
 - `cjpeg`, `djpeg`, and `jpegtran` are omitted because their reader paths require bundled zlib and libspng. The package has no external package dependencies.
+- The nested consumer build keeps its own install prefix; Zig 0.17 exposes the outer prefix only at make time.
+- `tools/consumer.zig` forwards the global cache and Zig library directory through environment variables; Zig 0.17's build command rejects the old directory flags.
+- The nested consumer requires `-Dconsumer-libc-runtimes=<path>` for cross-libc execution; Zig 0.17 exposes `--libc-runtimes` only at make time.
 - The declared `check` targets are x86_64 Linux, aarch64 Linux, aarch64 macOS, x86_64 Windows GNU, riscv64 Linux, and wasm32-wasi.
 
 ## Platform boundaries

@@ -40,7 +40,7 @@ fn noProvider() ConfigurationError {
 
 /// Format a diagnostic label in the process arena.
 fn label(allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
-    return std.fmt.allocPrint(allocator, fmt, args) catch @panic("OOM");
+    return allocator.print(fmt, args) catch @panic("OOM");
 }
 
 /// Embedded 8x8 grayscale fixture; every sample is 200.
@@ -530,7 +530,7 @@ fn checkEncode(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     out.startCompress();
     try checkInt(w, "encoded: bytes before finishCompress", out.bytes().len, 0);
 
-    const block = [_]u8{200} ** 64;
+    const block: [64]u8 = @splat(200);
     try checkInt(w, "encoded: scanlines accepted", try out.writeScanlines(&block), 8);
     out.finishCompress();
 
@@ -614,7 +614,7 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
         out.setInputColorSpace(.grayscale);
         out.setDefaults();
         out.startCompress();
-        const ragged = [_]u8{200} ** 9;
+        const ragged: [9]u8 = @splat(200);
         try checkError(
             w,
             "a buffer that is not a whole number of rows is refused",
