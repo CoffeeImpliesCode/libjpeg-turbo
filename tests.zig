@@ -240,7 +240,7 @@ const container = struct {
             // Repeated FF fill bytes can precede a marker.
             while (at + 1 < bytes.len and bytes[at + 1] == 0xFF) at += 1;
             if (at + 1 >= bytes.len) return error.Truncated;
-            const marker = std.mem.readInt(u16, bytes[at ..][0..2], .big);
+            const marker = std.mem.readInt(u16, bytes[at..][0..2], .big);
             const code: u8 = @truncate(marker);
 
             if (code == 0xD9) {

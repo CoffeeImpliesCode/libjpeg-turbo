@@ -363,7 +363,7 @@ fn parseSegments(bytes: []const u8, out: []Segment) ![]Segment {
         if (bytes[at] != 0xFF) return error.NotAMarker;
         while (at + 1 < bytes.len and bytes[at + 1] == 0xFF) at += 1;
         if (at + 1 >= bytes.len) return error.Truncated;
-        const marker = std.mem.readInt(u16, bytes[at ..][0..2], .big);
+        const marker = std.mem.readInt(u16, bytes[at..][0..2], .big);
         if (marker == eoi) {
             if (count == out.len) return error.TooManySegments;
             out[count] = .{ .marker = marker, .payload = bytes[at + 2 ..] };

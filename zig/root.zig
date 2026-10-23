@@ -18,7 +18,7 @@ const rt = @import("rt");
 pub const runtime_loaded: bool = if (@hasDecl(c, "rt_runtime_loaded")) c.rt_runtime_loaded else false;
 
 /// Explicit path or platform-loader name for `load`; there is no fallback.
-/// 
+///
 pub const LoadSource = if (runtime_loaded) c.LoadSource else rt.LoadSource;
 
 /// Errors returned when loading a runtime provider.

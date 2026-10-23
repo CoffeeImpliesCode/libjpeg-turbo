@@ -24,5 +24,5 @@ No files under `src/` are modified. Fork-authored files add the Zig-facing build
 ## Platform boundaries
 
 - SIMD is disabled on every target. x86 SIMD requires NASM; the other intrinsic implementations need CMake-generated capability probes that this graph does not reproduce.
-- Zig 0.16 `translate-c` fails on 14 BSD targets: nine NetBSD targets (`aarch64`, `aarch64_be`, `arm`, `armeb`, `mips`, `mipsel`, `powerpc`, `x86`, `x86_64`) due to `_Pragma`; OpenBSD `arm`, `powerpc`, and `x86` due to `size_t` redefinition; and OpenBSD `mips64`/`mips64el` due to missing endianness macros. These are translator/header-boundary failures, not C-library source failures.
+- Zig 0.16 `translate-c` fails on 14 BSD targets: nine NetBSD targets (`aarch64`, `aarch64_be`, `arm`, `armeb`, `mips`, `mipsel`, `powerpc`, `x86`, `x86_64`) due to `_Pragma`; OpenBSD `arm`, `powerpc`, and `x86` due to `size_t` redefinition; and OpenBSD `mips64`/`mips64el` due to missing endianness macros. These are translator/header-boundary failures, not C-library source failures (observed with Zig 0.16; not rechecked on 0.17).
 - `wasm32-wasi` compiles and links the test binary; executing it requires `wasmtime`.

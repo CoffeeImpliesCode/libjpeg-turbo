@@ -203,7 +203,7 @@ fn generateDispatch(
         .root_module = b.createModule(.{
             .root_source_file = b.path("runtime/generate.zig"),
             .target = b.graph.host,
-        .optimize = .debug,
+            .optimize = .debug,
         }),
     });
 

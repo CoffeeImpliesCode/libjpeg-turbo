@@ -68,7 +68,6 @@ const Options = struct {
     /// C-library extern names kept direct.
     /// Provider exports that may be absent.
     /// Extern names not required from the provider.
-
     library: []const u8 = "",
     translate: []const u8 = "",
     output: []const u8 = "",
@@ -549,9 +548,7 @@ fn planVariable(
                 const type_last = tree.lastToken(type_node);
                 // Evaluating `@TypeOf` on an extern constant can emit its address and cause a direct link.
                 // Copy its pointer type; names inside it remain re-exported from the nominal module.
-                decl.field_type = tree.source[
-                    tree.tokenStart(type_first)..tree.tokenStart(type_last) + tree.tokenSlice(type_last).len
-                ];
+                decl.field_type = tree.source[tree.tokenStart(type_first) .. tree.tokenStart(type_last) + tree.tokenSlice(type_last).len];
                 decl.address_value = true;
                 return decl;
             }
@@ -593,9 +590,7 @@ fn dataTypeText(
         );
         return error.UnsupportedDeclaration;
     };
-    const text = tree.source[
-        tree.tokenStart(tree.firstToken(type_node))..tree.tokenStart(last)
-    ];
+    const text = tree.source[tree.tokenStart(tree.firstToken(type_node))..tree.tokenStart(last)];
     if (std.mem.indexOfScalar(u8, text, '=') != null) {
         std.debug.print(
             "runtime/generate.zig: extern '{s}' is initialized; an exported object " ++
