@@ -1,59 +1,23 @@
-# FORK-LICENSE.md — the grant for this fork's own files
+# FORK-LICENSE.md — grant for fork-authored files
 
-[`NOTICE.md`](NOTICE.md) is the inventory: which files are upstream's, which are
-this fork's, and which term covers each. This file is the grant itself, for the
-second group only.
+[`NOTICE.md`](NOTICE.md) lists each path group and its licence. This grant applies only to the fork-authored files listed there.
 
-## 1. The native source is not covered by anything below
+## Upstream files
 
-The 613 files under `src/` are libjpeg-turbo's, whole from
-`libjpeg-turbo-3.2.0.tar.gz` and never edited. They are covered by **two**
-terms and several subsumed component terms, not by one:
+The 613 files under `src/` are unmodified files from `libjpeg-turbo-3.2.0.tar.gz`. This grant does not apply to `src/` or `README.upstream.md`.
 
-* the **IJG (Independent JPEG Group) License**, full text at
-  `src/README.ijg:126-157`, applying to the libjpeg API library and associated
-  programs including code inherited from libjpeg and modifications to it
-  (`src/LICENSE.md:6-11`);
-* the **Modified (3-clause) BSD License**, full text at
-  `src/LICENSE.md:119-147`, applying to the TurboJPEG API library and
-  associated programs, libspng, and the build/test system
-  (`src/LICENSE.md:13-24`);
-* the **zlib** term for the SIMD sources and the bundled zlib, subsumed by the
-  IJG terms in the libjpeg/cjpeg/djpeg context (`src/LICENSE.md:37-40`); the
-  **PNG Reference Library License v2** and **BSD-2-Clause** terms for parts of
-  libspng (`src/LICENSE.md:42-50`);
-* a fourth, independent **multi-author BSD-2-style** notice in
-  `src/simd/jsimd.h:1-21` and `src/simd/jsimd.c:1-31`, which upstream's own
-  roll-up does not enumerate.
+- The IJG License (`src/README.ijg:126-157`) covers the libjpeg API library and associated programs, including code inherited from libjpeg and modifications to it (`src/LICENSE.md:6-11`).
+- The Modified (3-clause) BSD License (`src/LICENSE.md:119-147`) covers the TurboJPEG API library and associated programs, libspng, and the build/test system (`src/LICENSE.md:13-24`).
+- The zlib terms cover SIMD sources and bundled zlib, and are subsumed by the IJG terms in the libjpeg/cjpeg/djpeg context (`src/LICENSE.md:37-40`). The PNG Reference Library License v2 and BSD-2-Clause cover parts of libspng (`src/LICENSE.md:42-50`).
+- A separate multi-author BSD-2-style notice appears in `src/simd/jsimd.h:1-21` and `src/simd/jsimd.c:1-31`; upstream's roll-up does not enumerate it.
 
-Nothing in this file re-grants, narrows, widens or conditions any of those
-terms, and nothing here asserts that the Independent JPEG Group, The
-libjpeg-turbo Project, D. R. Commander, Thomas G. Lane, Pierre Ossman, Arm
-Limited, Loongson Technology Corporation Limited, Google LLC, Samsung
-Electronics, Nokia Corporation, Cendio AB, Matthieu Darbois, Randy or any other
-named author wrote, reviewed or endorsed a line of fork code.
+Nothing here re-grants, narrows, widens, or conditions upstream terms. `README.upstream.md` is a byte copy of `src/README.md`. The bundled `src/src/spng/` and `src/src/spng/zlib/` trees are upstream files under their own licences; this SDK does not compile them.
 
-## 2. The fork-authored material
+## Fork-authored files and grant
 
-Everything else in this repository — the Zig build, the generated-header
-generator, the typed module and its tests, the smoke example, the consumer
-package, the runtime-loading route, the fixture encoder, the packaging, the
-integrity scripts and the documentation — was written for this fork.
+The fork-authored files in `NOTICE.md` include the Zig build, header generator, typed module and tests, smoke example, consumer package, runtime route, fixture encoder, packaging, integrity scripts, and documentation. Every file under `runtime/` and `tools/` is fork-authored. No upstream source is copied into fork-authored files; quotations identify their source with a file-and-line citation.
 
-**No upstream source was copied into any fork-authored file.** Not one function,
-constant, table, comment line, CMake rule or documentation paragraph from
-`src/` appears in a fork file. Where a fork file quotes upstream, it does so in
-an attributed quotation or a fenced block carrying a `file:line` citation, which
-is fair quotation under the IJG clause (1) machinery and leaves upstream's text
-in upstream's file. The only executable artefact that reads upstream data at
-run time is the compiled library itself, which is upstream's code linked, never
-reproduced.
-
-### Grant
-
-**Those files are released under the MIT License.** MIT is not one of
-libjpeg-turbo's own terms, and it is chosen here as the owner-authorized term
-for independently written additions rather than as an upstream term:
+The repository owner authorized MIT for these additions; it is not an upstream term. The owner is unnamed; copyright is collective.
 
 ```
 MIT License
@@ -79,94 +43,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Authority for that grant
-
-The owner of this repository authorized per-project licensing for
-fork-authored additions, with the term chosen per project. libjpeg-turbo has no
-single primary upstream term — it is dual-licensed by design
-(`src/LICENSE.md:4`) — so the choice could not be "match the primary upstream
-term" in the way it was for a single-licensed project. MIT was chosen because
-the material here is independently authored build, packaging, test and
-documentation work that does not derive from upstream's C, and because a
-permissive term keeps the fork's own files free of upstream's three
-conditions — most importantly the IJG clause (1) obligation that a
-modification "must be clearly indicated in accompanying documentation", which
-has nothing to say about a file that contains no upstream code and no
-modification.
-
-The authorization and the actual grant are recorded here and in
-[`NOTICE.md`](NOTICE.md). The term above is the owner's, reached by that
-authorization and not by any upstream grant.
-
-The owner is not named and no individual copyright holder is invented: the
-copyright line is deliberately the collective one.
-
-### SPDX identifier
+## SPDX identifier
 
 ```
 MIT
 ```
 
-The plain registered identifier, with no `LicenseRef-` wrapper. That is a
-deliberate distinction, not a shortcut. A fork whose own material carried added
-conditions would need an identifier naming them, because a consumer scanning
-for `MIT` would otherwise stop reading. Here MIT is accurate: no condition
-beyond the MIT condition is attached to any fork-authored file. It is *not* a
-claim about upstream — a consumer scanning a binary of this SDK sees the IJG
-terms as well, and `NOTICE.md` records where each travels.
+Fork-authored source, build, package, and script files carry plain `SPDX-License-Identifier: MIT`; docs and digest records have no tag (see `NOTICE.md`).
 
-Every fork-authored **source, build, packaging and script** file carries
-`SPDX-License-Identifier: MIT` on its own first comment line; the set is named
-one by one in [`NOTICE.md`](NOTICE.md). The documentation and digest records do
-not carry a tag: they are prose and data, and `NOTICE.md` names each of them
-explicitly so a scanner finding no identifier in `README.md` reads a recorded
-reason rather than an apparent gap.
+## Other carried material and upstream obligations
 
-## 3. Material carried but not authored here
+`tools/jconfig.zig` generates `jconfig.h`, `jconfigint.h`, and `jversion.h` in the build cache from upstream `.in` templates using upstream CMake substitution rules. These generated files are not carried in the tree or shipped as fork source.
 
-There is none that this fork introduced. `src/` is upstream's own tree, complete
-at 613 files, and `README.upstream.md` is a byte copy of `src/README.md` rather
-than a derived work. The bundled `src/src/spng/` and `src/src/spng/zlib/` are
-part of the release tarball and are upstream's, under their own licences; this
-SDK does not compile either of them (the tools that would have are excluded, for
-the reason in UPSTREAM.md).
+`fixtures/*.jpg` are generated by `tools/make-fixtures.py` from ITU-T T.81 without an image library or upstream code. Their digests are recorded.
 
-Two categories are worth keeping exact rather than dropping to make a sentence
-short:
-
-* **The generated headers.** `jconfig.h`, `jconfigint.h` and `jversion.h` are
-  written by `tools/jconfig.zig`, a fork-authored generator, into the build
-  cache — not into this tree — from upstream's own `.in` templates with
-  upstream's own CMake `@VAR@` and `#cmakedefine` substitution rules. They are
-  a deterministic build step from a host-target generator, as AGENTS.md §4
-  requires; they are not carried material, and they are not installed or
-  shipped as fork source. Every file under `runtime/` and `tools/` in this tree
-  is fork-authored.
-* **The fixtures.** `fixtures/*.jpg` are written by `tools/make-fixtures.py`
-  from the ITU-T T.81 specification, using no image library and no upstream
-  code. They are independent data, not derived from libjpeg-turbo, and their
-  digests are recorded so their independence stays checkable.
-
-## 4. What this does not do
-
-* It does not re-license, sublicense or add a condition to any file under
-  `src/`, or to `README.upstream.md`.
-* It does not assert that the Independent JPEG Group, The libjpeg-turbo Project,
-  or any author named in this repository authored, reviewed, endorsed or is
-  affiliated with the fork's files.
-* It does not discharge upstream's obligations. A consumer who ships a
-  libjpeg-turbo binary, a static-linked product, `libjpeg.pc`-based build or
-  any header still owes the IJG acknowledgement — "This software is based in
-  part on the work of the Independent JPEG Group"
-  (`src/LICENSE.md:88-89`) — and, in a TurboJPEG context, the Modified BSD text
-  (`src/LICENSE.md:94-98`). See `NOTICE.md` for where each travels.
-* It does not use any of the IJG or libjpeg-turbo names in advertising. The
-  prohibition at `src/LICENSE.md:102-104` is upstream's term and this fork
-  observes it.
-
-## 5. Why a separate file at all
-
-`NOTICE.md` names which fork-authored files carry an `SPDX-License-Identifier`
-line and which carry the same grant in prose without one. This file exists so
-that the authority, the grant text and the limits of that grant live in one
-place, next to the inventory rather than scattered across the files themselves.
+This grant makes no claim that the Independent JPEG Group, The libjpeg-turbo Project, or any named upstream author contributed to, reviewed, endorsed, or is affiliated with fork-authored files. It does not discharge upstream obligations: consumers of libjpeg-turbo binaries, static-linked products, `libjpeg.pc` builds, or headers still owe the IJG acknowledgement, "This software is based in part on the work of the Independent JPEG Group" (`src/LICENSE.md:88-89`). TurboJPEG use also requires the Modified BSD text (`src/LICENSE.md:94-98`). The advertising restriction in `src/LICENSE.md:102-104` remains in force; this fork makes no use of upstream names to endorse products.

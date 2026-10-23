@@ -1,52 +1,17 @@
-# Canonical development environment for the libjpeg-turbo SDK.
-#
-# This is the environment a contributor should be in. It installs tools and
-# nothing else: `packages` deliberately does not contain the SDK's own package,
-# because entering a shell must not require building a library to have it.
-#
-# The package itself is defined once, in ./package.nix, and shared with
-# flake.nix, so the two entry points cannot describe different builds. `outputs`
-# below name that same derivation lazily -- they are attributes, not builds, so
-# nothing is realised until `devenv build outputs.static` or
-# `devenv build outputs.shared` is actually run.
-#
-# devenv.lock is not written here: the driver owns locks.
-#
-# Two facts about the environment a task actually runs in are handled once, in
-# the `let` below, and every task uses them: devenv materialises a task as a
-# generated shell program that inherits the caller's working directory, and
-# `zig build` defaults both its local cache and its install prefix to
-# directories inside the working tree. Neither is visible from a task body, and
-# both decide whether a task can find this checkout or must write into it.
-#
 # SPDX-License-Identifier: MIT
 
 { pkgs, ... }:
 
 let
-  # Kept as a value rather than inlined, so the version assertion below and the
-  # package list cannot disagree about which compiler is meant.
+  # Share one Zig package between the assertion and shell tools.
   zig = pkgs.zig_0_16;
 
   libjpeg_turbo = linkage: pkgs.callPackage ./package.nix { … };
 
-  # The directory this module was evaluated against. `./.` is a path literal
-  # resolved relative to the file that names it, so this is this checkout and
-  # never the directory `devenv` was started from. `builtins.toString`
-  # converts that path instead of interpolating it into a string, so what the
-  # tasks below receive is this working tree: a plain `${./.}` would carry the
-  # path's store context and copy this whole SDK into the read-only store, and
-  # that copy is not the tree `build.zig` and `UPSTREAM.sha256` describe. No
-  # host path is written in this file -- the value is read out of the module's
-  # own location, so it tracks wherever this checkout is.
+  # Resolve this checkout from the module path without copying it into the Nix store.
   sdk_root = builtins.toString ./.;
 
-  # Where a task's build output goes. `zig build` keeps its local cache in
-  # `.zig-cache/` and installs into `zig-out/`, both relative to the working
-  # directory, and this checkout is a working tree on a volume mount that has to
-  # stay byte-identical. A directory the caller exported always wins and is
-  # never overwritten; otherwise it comes from `XDG_CACHE_HOME`, then `TMPDIR`,
-  # and this file names no location of its own.
+  # Preserve caller cache paths; otherwise use XDG_CACHE_HOME or TMPDIR.
   zig_caches = ''
     if [ -z "''${ZIG_LOCAL_CACHE_DIR:-}" ]; then
       if [ -n "''${XDG_CACHE_HOME:-}" ]; then
@@ -70,9 +35,7 @@ let
     fi
   '';
 
-  # The same rule with the one extra requirement a task has: it must be able to
-  # name that directory. An environment with nowhere outside the checkout to
-  # write stops here, with the reason, instead of filling the tree.
+  # Fail tasks that have no cache path outside the checkout.
   require_external_output = ''
     if [ -z "''${ZIG_LOCAL_CACHE_DIR}" ]; then
       echo "libjpeg-turbo devenv: ZIG_LOCAL_CACHE_DIR, XDG_CACHE_HOME and TMPDIR are all unset," >&2
@@ -82,39 +45,24 @@ let
     fi
   '';
 
-  # What every task below starts with. devenv materialises a task as a
-  # generated shell program that inherits the caller's working directory, so
-  # `devenv --from path:<sdk>` entered from a scratch project directory would
-  # otherwise run each of these bodies where there is no `build.zig` and no
-  # `UPSTREAM.sha256`. A per-task `cwd` would not reach that generated
-  # program, and `$DEVENV_ROOT` is the scratch project itself -- exactly what
-  # these bodies must not build in.
+  # Run tasks from this checkout, not the caller's `--from` project.
   in_sdk = ''
     ${zig_caches}
     ${require_external_output}
     cd "${sdk_root}" || exit 1
   '';
 
-  # The flags every native build here shares: this workspace's eight jobs,
-  # fixed, then the printed step list and a local cache outside the checkout.
-  # `"''$@"` stays after them, so whatever a caller appended is still passed
-  # on and still comes later; `devenv tasks run` forwards no argument of its
-  # own, so it is the empty list on that route.
+  # Share native-build flags and append caller arguments last.
   native_flags = ''
     -j8 --summary all --cache-dir "$ZIG_LOCAL_CACHE_DIR/native" "''$@"
   '';
 
-  # The consumer package is a second build graph with its own manifest, so it
-  # gets its own cache directory rather than sharing one with the library.
+  # Isolate the consumer cache from the library build.
   consumer_flags = ''
     -j8 --summary all --cache-dir "$ZIG_LOCAL_CACHE_DIR/consumer" "''$@"
   '';
 
-  # The non-SIMD configuration is named on every build here rather than left to
-  # a default. `-Dsimd` accepts `c` and nothing else -- see FORK-NOTES.md
-  # entry 1 -- so passing it makes the boundary visible in every command line
-  # and turns a future widening of the option into a change these tasks would
-  # have to be edited for.
+  # Pass the portable C-only SIMD setting explicitly.
   simd_flags = "-Dsimd=c";
 in
 
@@ -133,33 +81,18 @@ in
     }
   ];
 
-  # The shell hook exports the same two directories the tasks use, by the same
-  # rule, so an ordinary `devenv shell` session also leaves this checkout alone.
-  # A value the caller exported is kept exactly as it is, and with nothing to
-  # choose from the hook chooses nothing: only a task, which has to name the
-  # directory, refuses to run.
+  # Apply the cache rule in the shell without overriding caller paths.
   enterShell = ''
     ${zig_caches}
   '';
 
-  # Lazy on purpose: naming a derivation realises nothing, and entering the
-  # shell does not build either variant. `devenv build outputs.<name>` is the
-  # real packaging route; the task names below print the equivalent flake
-  # command, which needs the driver-owned lock.
+  # Outputs stay lazy; entering the shell does not build the SDK.
   outputs.static = libjpeg_turbo "static";
   outputs.shared = libjpeg_turbo "dynamic";
   outputs.default = libjpeg_turbo "static";
 
-  # Every task name here is `namespace:name` and nothing else. devenv 2.4.1
-  # accepts alphanumerics, `:`, `-` and `_` in a task name and rejects anything
-  # else before any shell runs, so names spelled with a `.` would be rejected by
-  # the parser before a task body could run. The two names the driver runs --
-  # `sdk:consumer` and `sdk:provenance` -- are valid and are unchanged.
   tasks = {
-    # Delivery output goes outside the checkout. The default step installs, and
-    # `zig-out/` is a directory in the working tree, so the install prefix is
-    # named here; the pkg-config file and the rpath the build normalises are
-    # prefix-relative, so the installed tree is the same shape wherever it lands.
+    # Install both variants outside the checkout.
     "sdk:build" = {
       description = ''
         Compile the libjpeg API library (default step) and install the delivery
@@ -183,8 +116,7 @@ in
       '';
     };
 
-    # These five run or compile; none of them installs, so each needs only the
-    # external cache directory.
+    # Test and check tasks need a cache but do not install outputs.
     "sdk:test" = {
       description = "Run the behavioural tests";
       exec = ''
@@ -225,10 +157,7 @@ in
       '';
     };
 
-    # The dependent package in `consumer/`, built and run as itself. It reaches
-    # the library through the relative path dependency in its own manifest, so
-    # this is the proof that `dep.module("libjpeg_turbo")` works from outside
-    # this package.
+    # Build and run the separate consumer through its relative path dependency.
     "sdk:consumer" = {
       description = "Build and run the separate consumer package against this SDK";
       exec = ''
@@ -238,9 +167,7 @@ in
       '';
     };
 
-    # The checker runs against this checkout's own bytes and file set, which is
-    # what `UPSTREAM.sha256` describes, so it is entered here rather than in the
-    # directory the task happened to start in.
+    # Run the provenance check from the checkout described by UPSTREAM.sha256.
     "sdk:provenance" = {
       description = ''
         Check the 613 recorded upstream digests, the exact native file set, the
@@ -253,12 +180,7 @@ in
       '';
     };
 
-    # These two are the only bodies that do not enter this checkout, and that is
-    # deliberate. They run a nested `devenv build`, which reads the project the
-    # caller entered -- under `--from path:<sdk>` that is the scratch project
-    # holding `.devenv/` and `devenv.lock` -- and its delivery output is a store
-    # path, never a directory in this tree. Changing directory here would point
-    # the nested command at a directory with no devenv state at all.
+    # Package tasks use the caller's devenv project and write only to the Nix store.
     "sdk:package:static" = {
       description = ''
         Build the static Nix variant through devenv's own lazy output. No lock

@@ -1,54 +1,18 @@
 // SPDX-License-Identifier: MIT
 // See FORK-LICENSE.md for what that identifier covers.
 
-//! A runnable, deterministic demonstration of the libjpeg-turbo facade.
-//!
-//! `zig build smoke` runs this. There is no input to supply and no output that
-//! depends on the host, the clock or a random seed, so the same lines come out
-//! every time.
-//!
-//! Every answer below is an expected value computed from ITU-T T.81 and JFIF,
-//! not a value this program printed for comparison. Three facts produce all of
-//! them, and `tests.zig`'s module comment gives the arithmetic:
-//!
-//!   1. both quantisation tables are all ones, so quantisation is exact;
-//!   2. every 8x8 block is flat, so its only coefficient is `8 * (sample - 128)`
-//!      and the inverse DCT returns `sample - 128` before the level shift adds
-//!      128 back - so the image comes back *exactly*, with no tolerance;
-//!   3. the JFIF luma constants satisfy `19595 + 38470 + 7471 = 2^16`, so
-//!      `R = G = B = v` decodes to `(v, v, v)` by that transform rather than by
-//!      a coincidence of rounding.
-//!
-//! A mismatch prints both sides and exits non-zero, so this is a check and not a
-//! demo.
-//!
-//! In a runtime-loading build the provider is named on the command line
-//! (`--provider <path>`) or in `LIBJPEG_TURBO_TEST_PROVIDER`, and the program
-//! says which configuration it is in the first two lines. In a linked build
-//! neither is needed and neither is read.
-//!
-//! What it exercises, in order: the three fixtures decoded to their stated
-//! samples, a colour transform in both directions, a row buffer one byte short
-//! of a row refused, a compress/decompress cycle, and the ownership transition
-//! of destroying both objects.
+//! Deterministic command-line demonstration of the libjpeg-turbo facade.
+//! Checks fixture pixels, color conversion, buffer limits, and compression.
 
 const std = @import("std");
 const jpeg = @import("libjpeg_turbo");
 
-/// The fixtures, embedded so the run needs no file system.
 const grey8x8 = @embedFile("fixtures/grey8x8-200.jpg");
 const grey16x16 = @embedFile("fixtures/grey16x16-halves.jpg");
 const rgb8x8_200 = @embedFile("fixtures/rgb8x8-grey200.jpg");
 
-/// A runtime-loading build has no provider until one is named.
 const ConfigurationError = error{NoProviderConfigured};
 
-/// The provider this run should load, from `--provider <path>` or from
-/// `LIBJPEG_TURBO_TEST_PROVIDER`.
-///
-/// Both are explicit. Nothing here looks in a default location or falls back to
-/// a linked copy: a runtime-loading build that was not told which file to load
-/// reports that it was not told, rather than loading something else.
 fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch
         return noProvider();
@@ -63,8 +27,6 @@ fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
         return noProvider();
 }
 
-/// Say which variable is missing. An error name on its own would send the next
-/// person into the loader instead of to the command line.
 fn noProvider() ConfigurationError {
     std.debug.print(
         "smoke: this is a runtime-loading build. Pass --provider <path>, or export " ++
@@ -92,17 +54,11 @@ pub fn main(init: std.process.Init) !void {
         "SIMD_ARCHITECTURE NONE, no src/simd/ unit compiled)\n", .{
         if (jpeg.runtime_loaded) "loaded" else "linked",
     });
-    // Printed, not compared: `JPEG_LIB_VERSION` is a compile-time constant of
-    // the translated headers, not a value read back from a provider, and
-    // libjpeg-turbo exports no version symbol to compare anything with
-    // (`runtime/library.zig`). Version provenance belongs to the provenance
-    // gate; the samples below are what this program decides on.
+    // This is the compile-time header version, not a value read from the provider.
     try w.print("headers were compiled against libjpeg v6b, JPEG_LIB_VERSION {d}\n", .{
         jpeg.libjpeg_api_version,
     });
 
-    // 1. A flat 8x8 block of 200, which is what `fixtures/grey8x8-200.jpg`
-    //    contains.
     {
         var image: jpeg.Decompress = .{};
         defer image.deinit();
@@ -127,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
         try checkInt(w, "grey8x8-200: warnings", image.warningCount(), 0);
     }
 
-    // 2. One image with two halves, so the expected sample depends on the row.
+    // Decode the split-tone fixture.
     {
         var image: jpeg.Decompress = .{};
         defer image.deinit();
@@ -153,9 +109,7 @@ pub fn main(init: std.process.Init) !void {
         image.finishDecompress();
     }
 
-    // 3. The colour transform in both directions on the same bytes. The RGB
-    //    decode is the identity for R=G=B; the greyscale decode is `v` because
-    //    the JFIF luma constants sum to 2^16.
+    // Check RGB and greyscale conversion on the same fixture.
     {
         var rgb: jpeg.Decompress = .{};
         defer rgb.deinit();
@@ -182,11 +136,6 @@ pub fn main(init: std.process.Init) !void {
         var grey: jpeg.Decompress = .{};
         defer grey.deinit();
         try grey.init(rgb8x8_200);
-        // `jpeg_read_header` has already run inside `init` and set
-        // `out_color_space` from the datastream's own component count
-        // (`src/src/jdapimin.c:337`, `:145`, `:190`), which for a
-        // three-component JFIF is `JCS_RGB`. Ask for greyscale explicitly, or
-        // this would be the RGB decode above again.
         grey.requestOutColorSpace(.grayscale);
         try grey.startDecompress();
         try checkInt(w, "rgb8x8-grey200: greyscale components", grey.outColorComponents(), 1);
@@ -202,8 +151,7 @@ pub fn main(init: std.process.Init) !void {
         grey.finishDecompress();
     }
 
-    // 4. A row buffer one byte short of a row. `jpeg_read_scanlines` takes no
-    //    length, so this is the boundary a C header cannot state.
+    // Reject a short row buffer before reading with a correctly sized one.
     {
         var image: jpeg.Decompress = .{};
         defer image.deinit();
@@ -212,12 +160,7 @@ pub fn main(init: std.process.Init) !void {
         var short: [7]u8 = undefined;
         try checkError(w, "a 7-byte buffer for an 8-byte row is refused", image.readScanlines(&short) == error.RowBufferTooSmall);
 
-        // The refusal left the image unread, and `jpeg_finish_decompress`
-        // raises `JERR_TOO_LITTLE_DATA` for a partial image
-        // (`src/src/jdapimin.c:407-408`), which reaches `error_exit` and stops
-        // the process. So the rest is drained through a correctly sized buffer
-        // first, which also checks that a right-sized one is accepted after the
-        // refusal.
+        // Drain the remaining rows before finishing.
         var row: [8]u8 = undefined;
         while (image.outputScanline() < image.outputHeight()) {
             _ = try image.readScanlines(&row);
@@ -226,8 +169,7 @@ pub fn main(init: std.process.Init) !void {
         image.finishDecompress();
     }
 
-    // 5. The compression side, the memory destination and the memory source,
-    //    and the ownership transition of destroying both objects.
+    // Encode, finish, and verify compressed output.
     {
         var out: jpeg.Compress = .{};
         defer out.deinit();

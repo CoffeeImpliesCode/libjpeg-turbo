@@ -1,54 +1,8 @@
 // SPDX-License-Identifier: MIT
 // See ../FORK-LICENSE.md for what that identifier covers.
 
-//! Consumes the `libjpeg-turbo` package the way an outside project would.
-//!
-//! Everything here goes through the published surface only:
-//! `b.dependency("libjpeg-turbo", ...)` and `dep.module("libjpeg_turbo")` in
-//! `build.zig`, and `@import("libjpeg_turbo")` here. No path reaches into the
-//! library's own tree and no file is read at run time, so if this builds and
-//! produces the answers below, the module contract is real: the typed facade,
-//! the translated headers it re-exports as `c`, the three headers that were
-//! generated for this target, and the native library behind all of it arrived
-//! through one dependency line.
-//!
-//! ## The answers are not this code talking to itself
-//!
-//! A round trip proves only that the two halves agree. Every check below is
-//! stated against a value from outside the library:
-//!
-//!   * **The container.** ITU-T T.81 and JFIF are parsed *by this program*, from
-//!     the fixture bytes alone: the `SOI`/`EOI` markers of A.2.1, the `APP0`
-//!     JFIF identifier and version of JFIF 1.02, and the `DQT` payload of B.2.4.
-//!     None of that goes through libjpeg, so a decoder that agreed with itself
-//!     about a malformed stream would still fail here.
-//!   * **The pixels.** The expected samples are the ones
-//!     `../tools/make-fixtures.py` writes out of arithmetic. Three facts produce
-//!     all of them and `../UPSTREAM.md` gives the derivation: both quantisation
-//!     tables are all ones, so quantisation is exact; every block is flat, so
-//!     its only coefficient is `8 * (sample - 128)` and the inverse DCT returns
-//!     `sample - 128` before the level shift adds 128 back; and the JFIF luma
-//!     constants satisfy `19595 + 38470 + 7471 = 2^16`, so `R = G = B = v`
-//!     decodes to `(v, v, v)` by that transform rather than by a rounding
-//!     coincidence.
-//!   * **The bytes.** Each fixture's SHA-256 and byte length, as
-//!     `../tools/check-fixtures.py`, `../UPSTREAM.md`, `../CHANGELOG.md` and
-//!     `.github/workflows/verify.yml` all record them. This program recomputes
-//!     both from the bytes it was given, so a fixture edited underneath the
-//!     tests becomes a failure instead of a weakened check.
-//!
-//! The same source builds against a linked package and against a runtime-loaded
-//! one. `libjpeg_turbo.runtime_loaded` is a comptime constant, so the difference
-//! is one branch and no duplicated program: in the runtime-loaded build the
-//! provider is named on the command line (`--provider <path>`) or in
-//! `LIBJPEG_TURBO_TEST_PROVIDER`, loaded once, and the same answers follow.
-//!
-//! **A runtime-loading run needs a provider.** Nothing is loaded by default and
-//! no other file is tried, so `zig build run -Druntime=true` with no
-//! `--provider` and no `LIBJPEG_TURBO_TEST_PROVIDER` exits non-zero with that
-//! sentence rather than quietly running against the linked copy. That is the
-//! policy `README.zig.md` states, and it means a CI step that wants the
-//! runtime-loaded route has to name a provider.
+//! Exercise the public module with embedded JPEG fixtures and independent expected metadata.
+//! Linked and runtime-loaded builds use the same checks; runtime builds require an explicit provider.
 
 const std = @import("std");
 const jpeg = @import("libjpeg_turbo");
@@ -56,12 +10,8 @@ const jpeg = @import("libjpeg_turbo");
 /// A runtime-loading build has no provider until one is named.
 const ConfigurationError = error{NoProviderConfigured};
 
-/// The provider this run should load, from `--provider <path>` or from
-/// `LIBJPEG_TURBO_TEST_PROVIDER`.
-///
-/// Both are explicit. Nothing here looks in a default location, and a build
-/// that was not told which file to load says so rather than loading something
-/// else.
+/// Read an explicit provider from `--provider` or `LIBJPEG_TURBO_TEST_PROVIDER`.
+/// Runtime-loaded builds do not search a default location.
 fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch
         return noProvider();
@@ -76,8 +26,7 @@ fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
         return noProvider();
 }
 
-/// Say which variable is missing. An error name on its own would send the next
-/// person into the loader instead of to the command line.
+/// Print the missing-provider instruction.
 fn noProvider() ConfigurationError {
     std.debug.print(
         "consumer: this is a runtime-loading build. Pass --provider <path>, or " ++
@@ -89,22 +38,12 @@ fn noProvider() ConfigurationError {
     return error.NoProviderConfigured;
 }
 
-/// A line label built for one diagnostic. Nothing freed: `main` allocates this
-/// from the process arena, and a check that is about to fail does not need its
-/// own bookkeeping.
+/// Format a diagnostic label in the process arena.
 fn label(allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
     return std.fmt.allocPrint(allocator, fmt, args) catch @panic("OOM");
 }
 
-// ---------------------------------------------------------------------------
-// The fixtures, and the digests this repository records for them
-// ---------------------------------------------------------------------------
-
-/// `fixtures/grey8x8-200.jpg`: 8x8, one component, every sample exactly 200.
-///
-/// The same 549 bytes the fixture file holds, embedded rather than read from a
-/// path: a gate that depends on a working directory can pass for the wrong
-/// reason.
+/// Embedded 8x8 grayscale fixture; every sample is 200.
 const grey8x8_200_jpg =
     "\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01\x01\x00\x00\x01" ++
     "\x00\x01\x00\x00\xFF\xDB\x00\x43\x00\x01\x01\x01\x01\x01\x01\x01" ++
@@ -142,8 +81,7 @@ const grey8x8_200_jpg =
     "\xF5\xF6\xF7\xF8\xF9\xFA\xFF\xDA\x00\x08\x01\x01\x00\x00\x3F\x00" ++
     "\xFE\x90\x2B\xFF\xD9";
 
-/// `fixtures/grey16x16-halves.jpg`: 16x16, one component, scanlines 0-7 exactly
-/// 0 and 8-15 exactly 255.
+/// Embedded 16x16 grayscale fixture; its top half is 0 and bottom half is 255.
 const grey16x16_halves_jpg =
     "\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01\x01\x00\x00\x01" ++
     "\x00\x01\x00\x00\xFF\xDB\x00\x43\x00\x01\x01\x01\x01\x01\x01\x01" ++
@@ -181,8 +119,7 @@ const grey16x16_halves_jpg =
     "\xF5\xF6\xF7\xF8\xF9\xFA\xFF\xDA\x00\x08\x01\x01\x00\x00\x3F\x00" ++
     "\xFF\x00\x3F\xFA\x2B\xFD\xFE\x28\xAF\xFF\xD9";
 
-/// `fixtures/rgb8x8-grey64.jpg`: 8x8, three components, every pixel exactly
-/// (64, 64, 64).
+/// Embedded 8x8 RGB fixture; every pixel is (64, 64, 64).
 const rgb8x8_grey64_jpg =
     "\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01\x01\x00\x00\x01" ++
     "\x00\x01\x00\x00\xFF\xDB\x00\x43\x00\x01\x01\x01\x01\x01\x01\x01" ++
@@ -225,8 +162,7 @@ const rgb8x8_grey64_jpg =
     "\xFA\xFF\xDA\x00\x0C\x03\x01\x00\x02\x01\x03\x01\x00\x3F\x00\xFE" ++
     "\x7F\xE8\x03\xFF\xD9";
 
-/// `fixtures/rgb8x8-grey200.jpg`: 8x8, three components, every pixel exactly
-/// (200, 200, 200).
+/// Embedded 8x8 RGB fixture; every pixel is (200, 200, 200).
 const rgb8x8_grey200_jpg =
     "\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01\x01\x00\x00\x01" ++
     "\x00\x01\x00\x00\xFF\xDB\x00\x43\x00\x01\x01\x01\x01\x01\x01\x01" ++
@@ -269,38 +205,27 @@ const rgb8x8_grey200_jpg =
     "\xFA\xFF\xDA\x00\x0C\x03\x01\x00\x02\x01\x03\x01\x00\x3F\x00\xFE" ++
     "\x90\x28\x03\xFF\xD9";
 
-/// One fixture's declared shape, as ITU-T T.81 and JFIF state it.
-///
-/// These are the numbers a consumer writes down from the specification before
-/// running anything. None of them is read back out of a decode.
+/// Expected marker metadata from T.81 and JFIF, independent of decoding.
 const Declared = struct {
     name: []const u8,
-    /// The file, byte for byte.
+    /// Fixture bytes.
     bytes: []const u8,
-    /// Its SHA-256, as `tools/check-fixtures.py` records it.
+    /// SHA-256 recorded by `tools/check-fixtures.py`.
     sha256: []const u8,
-    /// Its byte length, from the same table.
+    /// Fixture byte length.
     length: usize,
     width: u32,
     height: u32,
-    /// `cinfo.num_components`, which is what the SOF marker says.
+    /// Component count from the SOF marker.
     components: i32,
-    /// The colourspace the decode below asks for.
+    /// Requested output colorspace.
     out: jpeg.ColorSpace,
-    /// `out_color_components` after that request.
+    /// Output component count after conversion.
     out_components: i32,
-    /// How many DQT markers the file carries.
-    ///
-    /// Stated, not derived: a one-component image needs one quantisation table
-    /// and a three-component image needs a luma table and a chroma one, but the
-    /// count is a property of the bytes, so it is read out of the fixture and
-    /// compared rather than computed from `components`.
+    /// Number of DQT markers in the bytes, not inferred from component count.
     dqt_tables: usize,
-    /// The decoded value, one entry per sample of the greyscale decode.
-    ///
-    /// For a one-component image this is the whole image. For a three-component
-    /// image the greyscale decode of `R=G=B=v` is `v` by the JFIF luma identity,
-    /// so the same flat value applies to every row.
+    /// Expected decoded sample; the split fixture checks both halves separately.
+    /// Equal-channel RGB fixtures decode to the same grayscale value.
     sample: u8,
 };
 
@@ -329,9 +254,7 @@ const declared = [_]Declared{
         .out = .grayscale,
         .out_components = 1,
         .dqt_tables = 1,
-        // The split is stated, not derived: this is one image with two halves,
-        // so the expected sample depends on the row. Zero here names the top
-        // half; the bottom half is 255 and is checked separately.
+        // Expected top-half sample; the bottom half is checked separately.
         .sample = 0,
     },
     .{
@@ -362,8 +285,7 @@ const declared = [_]Declared{
     },
 };
 
-/// The marker codes ITU-T T.81 B.2.1 assigns, as literals rather than as
-/// anything read back out of a decoder.
+/// Marker codes assigned by T.81 B.2.1.
 const soi: u16 = 0xFFD8;
 const eoi: u16 = 0xFFD9;
 const app0: u16 = 0xFFE0;
@@ -380,8 +302,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &buffer);
     const w = &stdout.interface;
 
-    // In a runtime-loading build every call below goes through a table that this
-    // one call fills. In a linked build the branch is not analyzed at all.
+    // Runtime mode loads the explicit provider before any facade call.
     if (comptime jpeg.runtime_loaded) {
         try jpeg.load(.{ .path = try providerRequest(init) });
     }
@@ -391,25 +312,19 @@ pub fn main(init: std.process.Init) !void {
         "SIMD_ARCHITECTURE NONE, no src/simd/ unit compiled)\n", .{
         if (jpeg.runtime_loaded) "loaded" else "linked",
     });
-    // Printed, not compared: `JPEG_LIB_VERSION` is a compile-time constant of the
-    // translated headers, not a value read back from a provider, and
-    // libjpeg-turbo exports no version symbol to compare anything with. Version
-    // provenance belongs to the provenance gate; the samples below are what this
-    // program decides on.
+    // Print the translated headers' compile-time version; no provider version symbol is available to compare.
     try w.print("headers were compiled against libjpeg v6b, JPEG_LIB_VERSION {d}\n", .{
         jpeg.libjpeg_api_version,
     });
 
-    // The bytes, the container, and the pixels - in that order, so a fixture
-    // that moved fails on the digest before anything is decoded.
+    // Check fixture bytes and metadata before decoding them.
     for (declared) |fixture| {
         try checkDigest(w, allocator, fixture);
         try checkContainer(w, allocator, fixture);
         try checkPixels(w, allocator, fixture);
     }
 
-    // The colour transform's other direction on the two RGB fixtures: for
-    // `R = G = B = v` the RGB decode is the identity, so `(v, v, v)` comes out.
+    // Equal RGB channels should decode to the same value in every channel.
     for (declared[2..]) |fixture| {
         try checkRgbDecode(w, allocator, fixture);
     }
@@ -421,23 +336,14 @@ pub fn main(init: std.process.Init) !void {
     try w.flush();
 }
 
-// ---------------------------------------------------------------------------
-// 1. The bytes are the bytes this repository records
-// ---------------------------------------------------------------------------
-
 fn checkDigest(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Declared) !void {
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(fixture.bytes, &digest, .{});
     const hex = std.fmt.bytesToHex(digest, .lower);
-    // `++` is comptime-only on slices, so the two labels that name a fixture are
-    // built the way every other runtime label in this program is.
+    // Build fixture labels dynamically because slice concatenation is comptime-only.
     try checkString(w, label(allocator, "{s} sha256", .{fixture.name}), &hex, fixture.sha256);
     try checkInt(w, label(allocator, "{s} byte length", .{fixture.name}), fixture.bytes.len, fixture.length);
 }
-
-// ---------------------------------------------------------------------------
-// 2. The container, from ITU-T T.81 and from nothing else
-// ---------------------------------------------------------------------------
 
 /// One marker segment as this program parsed it, with nothing from libjpeg in it.
 const Segment = struct {
@@ -445,21 +351,12 @@ const Segment = struct {
     payload: []const u8,
 };
 
-/// Walks the marker stream of `bytes` from SOI to EOI.
-///
-/// T.81 A.2.1: a JPEG datastream is a sequence of markers. Standalone markers -
-/// SOI, EOI, RSTn (`FFD0`-`FFD7`) and TEM (`FF01`) - carry no length. Every
-/// other marker is followed by a two-byte big-endian length that counts itself
-/// but not the marker, so the payload is `length - 2` bytes.
-///
-/// The `FF` fill rule is honoured: a marker may be preceded by any number of
-/// `FF` bytes, and it is the first byte that is not `FF` that completes it.
+/// Standalone markers have no length; others use big-endian lengths including two bytes, with FF fill allowed.
 fn parseSegments(bytes: []const u8, out: []Segment) ![]Segment {
     if (bytes.len < 4) return error.Truncated;
     if (std.mem.readInt(u16, bytes[0..2], .big) != soi) return error.NoSoi;
     var at: usize = 2;
-    // SOI carries no length and no payload, but it is a segment the caller
-    // reads as `segments[0]`, so it is recorded here rather than only checked.
+    // Record SOI as segment zero because callers inspect it.
     out[0] = .{ .marker = soi, .payload = bytes[2..2] };
     var count: usize = 1;
     while (at < bytes.len) {
@@ -486,12 +383,7 @@ fn parseSegments(bytes: []const u8, out: []Segment) ![]Segment {
         if (count == out.len) return error.TooManySegments;
         out[count] = .{ .marker = marker, .payload = bytes[payload_start..payload_end] };
         count += 1;
-        // Everything after SOS is entropy-coded data, not more segments. T.81
-        // B.2.3: the coded data ends at the next marker that is neither a
-        // stuffed `FF 00` -- `FF 00` decodes to a data `FF` -- nor an RSTn
-        // restart marker, both of which belong to the data rather than to what
-        // follows it. Scanning past it as if it were segments is what made the
-        // first scan byte of these fixtures fail as `NotAMarker`.
+        // Scan data ends at the next marker; stuffed FF00 and restart markers remain in the scan.
         if (marker == sos) {
             var scan = payload_end;
             while (scan + 1 < bytes.len) {
@@ -520,15 +412,11 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     try checkInt(w, label(allocator, "{s}: EOI", .{fixture.name}), segments[segments.len - 1].marker, eoi);
     try checkInt(w, label(allocator, "{s}: first marker after SOI", .{fixture.name}), segments[1].marker, app0);
 
-    // JFIF 1.02 section 3: APP0's payload is the identifier "JFIF\0", then the
-    // version as two bytes, the density unit, the X and Y densities, and a
-    // thumbnail width and height. This is read here, not through libjpeg.
+    // Parse JFIF APP0 directly: identifier, version, density, and thumbnail dimensions.
     try checkString(w, label(allocator, "{s}: APP0 identifier", .{fixture.name}), segments[1].payload[0..5], "JFIF\x00");
     try checkInt(w, label(allocator, "{s}: APP0 payload length", .{fixture.name}), segments[1].payload.len, 14);
     try checkString(w, label(allocator, "{s}: JFIF version", .{fixture.name}), segments[1].payload[5..7], "\x01\x01");
-    // JFIF 1.02 section 3 after the version: the density unit, then X and Y
-    // density as two bytes each, then the two thumbnail bytes. "density unit
-    // and 1:1 density" is the five bytes before the thumbnail, not six.
+    // After the version come density unit, X/Y density, then thumbnail dimensions.
     try checkString(w, label(allocator, "{s}: density unit and 1:1 density", .{fixture.name}), segments[1].payload[7..12], "\x00\x00\x01\x00\x01");
 
     var dqt_tables: usize = 0;
@@ -537,10 +425,7 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     for (segments[1 .. segments.len - 1]) |segment| {
         if (segment.marker == dqt) {
             dqt_tables += 1;
-            // T.81 B.2.4: the payload is one or more tables, each a
-            // precision-and-identifier byte followed by 64 values in zig-zag
-            // order. Every value in these fixtures is 1, which is fact 1 of the
-            // module comment: quantisation is exact.
+            // Each DQT table has a precision/identifier byte and 64 zig-zag values.
             try checkInt(w, label(allocator, "{s}: DQT precision is 8 bits", .{fixture.name}), segment.payload[0] >> 4, 0);
             try checkInt(w, label(allocator, "{s}: DQT table identifier", .{fixture.name}), segment.payload[0] & 0x0F, dqt_tables - 1);
             for (segment.payload[1..]) |value| {
@@ -552,8 +437,7 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     }
     try checkInt(w, label(allocator, "{s}: quantisation table count", .{fixture.name}), dqt_tables, fixture.dqt_tables);
 
-    // T.81 B.2.2: the SOF payload is sample precision, height, width, the number
-    // of components, and then three bytes per component.
+    // SOF holds sample precision, dimensions, component count, and three bytes per component.
     const frame = sof orelse return error.NoSof;
     try checkInt(w, label(allocator, "{s}: SOF sample precision", .{fixture.name}), frame.payload[0], 8);
     try checkInt(w, label(allocator, "{s}: SOF height", .{fixture.name}), std.mem.readInt(u16, frame.payload[1..3], .big), fixture.height);
@@ -562,10 +446,6 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     try checkInt(w, label(allocator, "{s}: SOF payload length", .{fixture.name}), frame.payload.len, 6 + 3 * fixture.components);
     try checkError(w, label(allocator, "{s}: a start-of-scan marker is present", .{fixture.name}), saw_sos);
 }
-
-// ---------------------------------------------------------------------------
-// 3. The pixels, through libjpeg-turbo and against the specification
-// ---------------------------------------------------------------------------
 
 fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Declared) !void {
     var image: jpeg.Decompress = .{};
@@ -576,18 +456,12 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Declare
     try checkInt(w, label(allocator, "{s}: height", .{fixture.name}), image.height(), fixture.height);
     try checkInt(w, label(allocator, "{s}: components", .{fixture.name}), image.numComponents(), fixture.components);
 
-    // The colourspace this fixture is decoded into is declared, not left to
-    // libjpeg's default: a three-component image otherwise comes out as RGB,
-    // and the greyscale read of `R=G=B=v` that the samples below rely on is
-    // the one that has to be asked for.
+    // Request the fixture's declared output colorspace rather than relying on libjpeg's default.
     image.requestOutColorSpace(fixture.out);
     try image.startDecompress();
     try checkInt(w, label(allocator, "{s}: output width", .{fixture.name}), image.outputWidth(), fixture.width);
     try checkInt(w, label(allocator, "{s}: output height", .{fixture.name}), image.outputHeight(), fixture.height);
     try checkInt(w, label(allocator, "{s}: output components", .{fixture.name}), image.outColorComponents(), fixture.out_components);
-    // `width` is u32 and `out_components` is i32 upstream's own pair of types;
-    // the row length and the buffer size are computed here in `usize` rather
-    // than mixed, so no line has to carry a cast twice.
     const width: usize = fixture.width;
     const height: usize = fixture.height;
     const outs: usize = @intCast(fixture.out_components);
@@ -599,9 +473,7 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Declare
     image.finishDecompress();
 
     if (fixture.components == 1 and fixture.sample == 0) {
-        // The one fixture whose expected sample is not flat: rows 0-7 are 0 and
-        // rows 8-15 are 255, which is the statement `tools/make-fixtures.py`
-        // makes and what pins both ends of the sample range in one image.
+        // This fixture has rows 0-7 at 0 and rows 8-15 at 255.
         for (0..height) |y| {
             const want: u8 = if (y < height / 2) 0 else 255;
             for (0..width) |x| {
@@ -615,9 +487,7 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Declare
         }
     }
 
-    // A clean decode produced no recoverable warnings. `WARNMS` goes to
-    // `emit_message` rather than to `error_exit`, so a damaged stream would be
-    // observable here rather than fatal.
+    // Recoverable warnings use `emit_message`; a clean decode has none.
     try checkInt(w, label(allocator, "{s}: warnings", .{fixture.name}), image.warningCount(), 0);
     try checkError(w, label(allocator, "{s}: no warning text kept", .{fixture.name}), image.lastWarning() == null);
 }
@@ -635,9 +505,7 @@ fn checkRgbDecode(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     try image.readAll(pixels);
     image.finishDecompress();
 
-    // For `R = G = B = v` the RGB decode is the identity, so all three channels
-    // carry `v`. This is the colour transform checked in its own direction
-    // rather than a round trip.
+    // Equal RGB channels remain identical through the RGB decode transform.
     for (0..@as(usize, fixture.width) * @as(usize, fixture.height)) |i| {
         for (0..3) |channel| {
             try checkInt(
@@ -650,20 +518,12 @@ fn checkRgbDecode(w: *std.Io.Writer, allocator: std.mem.Allocator, fixture: Decl
     }
 }
 
-// ---------------------------------------------------------------------------
-// 4. The writing side
-// ---------------------------------------------------------------------------
-
 fn checkEncode(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
-    // The same 8x8 flat block of 200 that `grey8x8-200.jpg` contains, encoded
-    // here through the published facade. The produced stream is then parsed
-    // with the same T.81 checks the fixtures went through, so the encoder is
-    // measured against the specification rather than against the decoder.
+    // Encode the 8x8 fixture sample, then validate the stream against JPEG markers and expected pixels.
     var out: jpeg.Compress = .{};
     defer out.deinit();
     out.init(8, 8, 1);
-    // The documented order: `in_color_space` has to be right before
-    // `jpeg_set_defaults` (`src/src/jpeglib.h:351-359`).
+    // Set input colorspace before defaults, as libjpeg requires.
     out.setInputColorSpace(.grayscale);
     out.setDefaults();
     out.setQuality(100, true);
@@ -698,10 +558,7 @@ fn checkEncode(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     try checkError(w, "encoded: a frame header is present", saw_sof);
     try checkError(w, "encoded: a start-of-scan marker is present", saw_sos);
 
-    // The round trip, and nothing more: it compares this build's encoder with
-    // this build's decoder. The four fixtures above are what make that
-    // comparison meaningful, because their samples came from T.81 arithmetic
-    // and from neither half of this program.
+    // Independent fixture samples anchor this encoder/decoder round-trip.
     var image: jpeg.Decompress = .{};
     defer image.deinit();
     try image.init(compressed);
@@ -716,9 +573,7 @@ fn checkEncode(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
         try checkInt(w, label(allocator, "round trip: sample {d}", .{i}), got, 200);
     }
 
-    // The ownership transition: destroying the compressor releases the
-    // destination buffer, and a second `deinit` is a no-op rather than a
-    // second free.
+    // Destroying the compressor releases its destination buffer; later deinit is harmless.
     out.deinit();
     try checkInt(w, "ownership: the compressor is closed", @intFromBool(out.isOpen()), 0);
     try checkInt(w, "ownership: the bytes went with it", out.bytes().len, 0);
@@ -726,14 +581,8 @@ fn checkEncode(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     try checkInt(w, "ownership: a second deinit changes nothing", @intFromBool(out.isOpen()), 0);
 }
 
-// ---------------------------------------------------------------------------
-// 5. The boundaries the facade documents
-// ---------------------------------------------------------------------------
-
 fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
-    // A row buffer that cannot hold one row. `jpeg_read_scanlines` takes no
-    // length, so this is the boundary a C header cannot state and the reason
-    // `readScanlines` checks it before handing the pointer over.
+    // Reject undersized rows before passing pointers to `jpeg_read_scanlines`, which has no length argument.
     {
         var image: jpeg.Decompress = .{};
         defer image.deinit();
@@ -745,7 +594,7 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
             "a 7-byte buffer for an 8-byte row is refused",
             image.readScanlines(&short) == error.RowBufferTooSmall,
         );
-        // The same rule one level up: `readAll` computes the whole-image length.
+        // `readAll` also validates the whole-image length.
         const whole_but_short = try allocator.alloc(u8, 63);
         defer allocator.free(whole_but_short);
         try checkError(
@@ -753,19 +602,11 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
             "a 63-byte buffer for a 64-sample image is refused",
             image.readAll(whole_but_short) == error.RowBufferTooSmall,
         );
-        // No `finishDecompress` here, deliberately. Both refusals above left the
-        // stream part-read, and finishing it raises `JERR_TOO_LITTLE_DATA`
-        // ("Application transferred too few scanlines",
-        // `src/src/jdapimin.c:408`), which is fatal. A fatal error leaves the
-        // object unusable, and the documented way out of that is
-        // `jpeg_destroy`, which the `defer` above already does. Calling
-        // `finish` to tidy up is what turned these two passing refusals into an
-        // abort.
+        // Do not finish a part-read stream: libjpeg raises fatal `JERR_TOO_LITTLE_DATA`.
+        // Destroy it instead; the defer above performs cleanup.
     }
 
-    // A scanline buffer that is not a whole number of rows. One row here is
-    // 8 bytes at 8x1 component, so 9 bytes would have libjpeg read past the end
-    // of the caller's data.
+    // Reject partial rows because libjpeg has no scanline-buffer length argument.
     {
         var out: jpeg.Compress = .{};
         defer out.deinit();
@@ -781,8 +622,7 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
         );
     }
 
-    // The decompressor is not open before `init`, and it is closed after
-    // `deinit`: the ownership transition a dependent has to be able to rely on.
+    // The decompressor is closed before init and after deinit.
     {
         var image: jpeg.Decompress = .{};
         try checkInt(w, "ownership: not open before init", @intFromBool(image.isOpen()), 0);
@@ -797,10 +637,6 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
         try checkInt(w, "ownership: a second deinit changes nothing", @intFromBool(image.isOpen()), 0);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Reporting
-// ---------------------------------------------------------------------------
 
 fn checkInt(w: *std.Io.Writer, what: []const u8, got: anytype, expected: anytype) !void {
     try w.print("{s: <56}{d}\n", .{ what, got });
