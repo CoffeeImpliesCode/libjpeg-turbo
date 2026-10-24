@@ -488,7 +488,7 @@ pub const Compress = struct {
     pub fn warningCount(self: *const Compress) c_long {
         const raw = self.raw orelse return 0;
         const err = raw.err orelse return 0;
-        return err.num_warnings;
+        return err.*.num_warnings;
     }
 
     /// The text of the first warning, or null when there has been none.

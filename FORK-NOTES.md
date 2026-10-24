@@ -8,12 +8,14 @@ No files under `src/` are modified. Fork-authored files add the Zig-facing build
 - `zig/root.zig` exposes the translated C API as a Zig module.
 - `zig/translate.h` aggregates public headers for C-to-Zig translation.
 - `tests.zig` and `smoke.zig` exercise the facade without building upstream's test applications.
+- `runtime/library.zig` validates providers with a 1x1 greyscale round-trip and rejects incomplete decompression after freeing provider resources.
 
 ## Build graph
 
 - `build.zig` compiles the 98-unit portable C library as artifact `jpeg`; it generates `jconfig.h`, `jconfigint.h`, `jversion.h`, and `libjpeg.pc` in the build graph.
 - The build compiles 71 shipped precision wrappers directly; it does not run upstream's wrapper generator or write into `src/`.
 - `-Dlinkage` selects static (default) or shared output. `-Druntime=true` selects the runtime-dispatch facade. System-library mode is refused.
+- ELF shared libraries export `jpeg_*`, `jpeg12_*`, and `jpeg16_*`; other symbols are local.
 - `-Dsimd` accepts only `c`. The graph disables arithmetic coding, profiling, TurboJPEG, command-line tools, upstream tests, and JPEG 7/8 extensions; the public API remains libjpeg v6.
 - `cjpeg`, `djpeg`, and `jpegtran` are omitted because their reader paths require bundled zlib and libspng. The package has no external package dependencies.
 - The nested consumer build keeps its own install prefix; Zig 0.17 exposes the outer prefix only at make time.

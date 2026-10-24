@@ -30,9 +30,9 @@ fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
 fn noProvider() ConfigurationError {
     std.debug.print(
         "consumer: this is a runtime-loading build. Pass --provider <path>, or " ++
-            "export LIBJPEG_TURBO_TEST_PROVIDER with a shared object exporting the " ++
-            "66 jpeg_* names of zig/translate.h. Nothing is loaded by default and " ++
-            "no other file is tried.\n",
+            "export LIBJPEG_TURBO_TEST_PROVIDER with a shared object exporting all " ++
+            "public libjpeg symbols declared by zig/translate.h. Nothing is loaded " ++
+            "by default and no other file is tried.\n",
         .{},
     );
     return error.NoProviderConfigured;

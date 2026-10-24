@@ -92,8 +92,8 @@ pub fn Config(comptime dispatch: type) type {
                     "could install an error manager on it";
 
             // Both exchange halves use `dst`, so mixed-provider tables fail validation.
-            errp.error_exit = onErrorExit;
-            errp.emit_message = onEmitMessage;
+            errp.*.error_exit = onErrorExit;
+            errp.*.emit_message = onEmitMessage;
 
             const sample = exchange(dst, errp) orelse
                 return "this provider could not compress and decompress a 1x1 " ++
@@ -119,10 +119,12 @@ pub fn Config(comptime dispatch: type) type {
             if (cinfo) |info| {
                 if (info.err) |err| {
                     // `format_message` NUL-terminates its output.
-                    err.format_message(info, &buffer);
+                    err.*.format_message.?(info, &buffer);
                 }
             }
-            std.debug.panic("libjpeg_turbo: the provider reported {s}", .{std.mem.span(&buffer)});
+            std.debug.panic("libjpeg_turbo: the provider reported {s}", .{
+                std.mem.span(@as([*:0]u8, @ptrCast(&buffer))),
+            });
         }
 
         /// Suppress stderr while validating a candidate provider.
@@ -133,13 +135,14 @@ pub fn Config(comptime dispatch: type) type {
         fn exchange(dst: *const table, errp: *dispatch.jpeg_error_mgr) ?u8 {
             // Compress.
             var cinfo: dispatch.jpeg_compress_struct = undefined;
+            cinfo.err = errp;
+            cinfo.client_data = null;
             dst.jpeg_CreateCompress(
                 &cinfo,
                 // Use the provider's macro so a version mismatch is rejected by libjpeg.
                 dispatch.JPEG_LIB_VERSION,
                 @sizeOf(dispatch.jpeg_compress_struct),
             );
-            cinfo.err = errp;
             cinfo.image_width = 1;
             cinfo.image_height = 1;
             cinfo.input_components = 1;
@@ -171,12 +174,13 @@ pub fn Config(comptime dispatch: type) type {
             // Decompress.
             var result: ?u8 = null;
             var dcinfo: dispatch.jpeg_decompress_struct = undefined;
+            dcinfo.err = errp;
+            dcinfo.client_data = null;
             dst.jpeg_CreateDecompress(
                 &dcinfo,
                 dispatch.JPEG_LIB_VERSION,
                 @sizeOf(dispatch.jpeg_decompress_struct),
             );
-            dcinfo.err = errp;
             dst.jpeg_mem_src(&dcinfo, @constCast(buffer), @intCast(length));
 
             // `TRUE` requests the documented normal image header.
@@ -198,7 +202,9 @@ pub fn Config(comptime dispatch: type) type {
                     result = got[0];
                 }
             }
-            dst.jpeg_finish_decompress(&dcinfo);
+            if (dst.jpeg_finish_decompress(&dcinfo) == 0) {
+                result = null;
+            }
             dst.jpeg_destroy_decompress(&dcinfo);
 
             free(@constCast(buffer));

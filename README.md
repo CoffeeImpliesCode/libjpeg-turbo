@@ -45,6 +45,7 @@ foreign executables.
 
 On WASI, requesting dynamic linkage delivers the static archive. The runtime
 loader is unavailable on WASI, Emscripten, and freestanding targets.
+The native `check` matrix omits WASI when dynamic linkage or runtime loading is selected.
 
 ## Consumption
 

@@ -464,6 +464,7 @@ test "deinit closes a Decompress and a second deinit is a no-op" {
 test "deinit closes a Compress and releases the destination buffer once" {
     var out: jpeg.Compress = .{};
     try testing.expect(!out.isOpen());
+    try testing.expectEqual(@as(c_long, 0), out.warningCount());
 
     out.init(1, 1, 1);
     out.setInputColorSpace(.grayscale);
@@ -474,10 +475,12 @@ test "deinit closes a Compress and releases the destination buffer once" {
     _ = try out.writeScanlines(&pixel);
     out.finishCompress();
     try testing.expect(out.bytes().len > 0);
+    try testing.expectEqual(@as(c_long, 0), out.warningCount());
 
     out.deinit();
     try testing.expect(!out.isOpen());
     try testing.expectEqual(@as(usize, 0), out.bytes().len);
+    try testing.expectEqual(@as(c_long, 0), out.warningCount());
 
     out.deinit();
     try testing.expect(!out.isOpen());

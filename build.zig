@@ -403,13 +403,13 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step(
         "check",
         "Compile the native library, the facade, the tests and the example for " ++
-            "the six check targets without running any of them",
+            "the compatible check targets without running any of them",
     );
     if (!target.query.isNative()) {
         add_target_check(b, check_step, target.query, optimize, delivered, runtime_loaded);
     } else {
-        // Linkage selects the artifact, not the cross-target set.
         for (check_targets[0..]) |query| {
+            if (query.os_tag == .wasi and (linkage == .dynamic or runtime_loaded)) continue;
             add_target_check(b, check_step, query, optimize, delivered, runtime_loaded);
         }
     }
@@ -480,7 +480,7 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .macos and delivered == .dynamic) {
         std.debug.print(
             "libjpeg-turbo: Mach-O has no version script, so libjpeg.dylib from this " ++
-                "build exports libjpeg-turbo's internals as well as its jpeg_* API. " ++
+                "build exports libjpeg-turbo's internals as well as its public API. " ++
                 "That is a real difference from the ELF object and it is reported " ++
                 "rather than hidden.\n",
             .{},
@@ -726,7 +726,7 @@ fn add_c_library(
     return c_lib;
 }
 
-/// ELF exports the `jpeg_*` API and localizes other symbols (`src/CMakeLists.txt:604-609`).
+/// ELF exports the 8-, 12-, and 16-bit libjpeg APIs and localizes other symbols.
 /// Mach-O has no version-script equivalent, so other symbols remain exported there.
 fn setVersionScript(
     b: *std.Build,
@@ -740,9 +740,11 @@ fn setVersionScript(
         \\{
         \\  global:
         \\    jpeg_*;
+        \\    jpeg12_*;
+        \\    jpeg16_*;
         \\  local:
         \\    *;
-        \\}
+        \\};
     ));
 }
 
