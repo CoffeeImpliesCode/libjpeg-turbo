@@ -6,7 +6,7 @@ let
   # Share one Zig package between the assertion and shell tools.
   zig = pkgs.zig_0_17;
 
-  libjpeg_turbo = linkage: pkgs.callPackage ./package.nix { … };
+  libjpeg_turbo = linkage: pkgs.callPackage ./package.nix { inherit zig linkage; };
 
   # Resolve this checkout from the module path without copying it into the Nix store.
   sdk_root = builtins.toString ./.;
