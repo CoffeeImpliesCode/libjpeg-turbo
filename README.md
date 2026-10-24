@@ -53,10 +53,8 @@ The native `check` matrix omits WASI when dynamic linkage or runtime loading is 
 
 In the dependent's `build.zig.zon`:
 
-```zig
-.dependencies = .{
-    .@"libjpeg-turbo" = .{ .path = "../libjpeg-turbo" },
-},
+```sh
+zig fetch --save git+https://github.com/CoffeeImpliesCode/libjpeg-turbo#v3.2.0
 ```
 
 In `build.zig`, the package key uses a hyphen; the Zig module name uses an
